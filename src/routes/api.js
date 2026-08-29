@@ -4,7 +4,7 @@ import { requireAuth, publicUser } from '../auth/middleware.js';
 import { listStations, stationInventory, itemAcrossStations, syncState } from '../services/stock.js';
 import {
   listOpenMissions, claimMission, deliverClaim, abandonClaim,
-  myClaims, leaderboard, refreshAutoMissions, claimHistory, cancelDelivery,
+  myClaims, leaderboard, refreshAutoMissions, claimHistory, cancelDelivery, monthlyFunds,
 } from '../services/missions.js';
 import { subscribe, broadcast } from '../services/events.js';
 
@@ -144,5 +144,6 @@ apiRouter.post('/claims/:id/cancel', requireAuth, (req, res) => {
 });
 
 apiRouter.get('/leaderboard', requireAuth, (req, res) => {
-  res.json(leaderboard(Number(req.query.days) || 30));
+  const period = ['month', 'last', 'year'].includes(req.query.period) ? req.query.period : 'month';
+  res.json({ period, rows: leaderboard(period), funds: monthlyFunds() });
 });

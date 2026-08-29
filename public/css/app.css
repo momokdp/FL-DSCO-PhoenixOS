@@ -768,3 +768,70 @@ a:hover { text-decoration: underline; }
   .board__row { grid-template-columns: 2rem 1fr auto; }
   .board__bar, .board__runs { display: none; }
 }
+
+/* =====================================================================
+   Jauge accordée à la criticité.
+
+   Le remplissage reprenait sa propre échelle de couleur, indépendante du
+   liseré de la carte : deux signaux contradictoires sur le même objet.
+   À l'intérieur d'une mission, la jauge suit la priorité.
+   ===================================================================== */
+.mission[data-priority="critical"] .gauge__fill { background: var(--rust); }
+.mission[data-priority="high"]     .gauge__fill { background: var(--amber); }
+.mission[data-priority="normal"]   .gauge__fill { background: var(--ion); }
+.mission[data-priority="low"]      .gauge__fill { background: var(--muted); }
+
+.mission[data-priority="critical"] .gauge { background: rgba(217,85,63,.12); }
+.mission[data-priority="high"]     .gauge { background: rgba(232,163,61,.10); }
+
+/* Mission déjà couverte : plus d'action possible, on le dit. */
+.mission__full {
+  flex: 1; text-align: center; padding: .45rem;
+  font-family: var(--display); font-size: .75rem; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--moss);
+  border: 1px dashed rgba(111,191,115,.4); border-radius: var(--r);
+}
+
+.mission__rewardRate {
+  font-family: var(--mono); font-size: .72rem; color: var(--dim);
+}
+
+/* =====================================================================
+   Cagnotte du mois — en tête du classement.
+   ===================================================================== */
+.pot {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: .35rem 1.5rem;
+  align-items: baseline;
+  padding: 1.1rem 1.3rem;
+  margin-bottom: 1.25rem;
+  border: 1px solid var(--seam);
+  border-left: 3px solid var(--amber);
+  border-radius: var(--r);
+  background: linear-gradient(180deg, rgba(232,163,61,.07), transparent);
+}
+.pot__main { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; }
+.pot__label {
+  font-family: var(--display); font-size: .68rem; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--dim); width: 100%;
+}
+.pot__value {
+  font-family: var(--mono); font-size: 2.1rem; font-weight: 600;
+  font-variant-numeric: tabular-nums; line-height: 1;
+}
+.pot__value.is-up   { color: var(--moss); }
+.pot__value.is-down { color: var(--rust); }
+.pot__unit { font-family: var(--mono); color: var(--dim); font-size: .9rem; }
+
+.pot__side { display: grid; gap: .2rem; justify-items: start; align-content: center; }
+.pot__stations {
+  grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: .35rem;
+  margin-top: .5rem; padding-top: .7rem; border-top: 1px solid var(--seam);
+}
+.pot__stations .chip b { color: var(--amber); font-weight: 600; }
+
+@media (max-width: 640px) {
+  .pot { grid-template-columns: 1fr; }
+  .pot__value { font-size: 1.7rem; }
+}

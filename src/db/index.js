@@ -40,6 +40,21 @@ export function migrate({ verbose = true } = {}) {
     .filter((f) => f.endsWith('.sql'))
     .sort();
 
+  // Deux fichiers portant le même numéro sont une erreur, jamais une
+  // intention : l'ordre entre eux dépendrait du tri alphabétique du reste
+  // du nom, et un seul serait retenu si l'autre a déjà été appliqué.
+  const parNumero = new Map();
+  for (const f of files) {
+    const n = f.slice(0, 3);
+    if (parNumero.has(n)) {
+      throw new Error(
+        `Deux migrations portent le numéro ${n} : « ${parNumero.get(n)} » et « ${f} ». ` +
+        `Renumérotez-en une avant de démarrer.`
+      );
+    }
+    parNumero.set(n, f);
+  }
+
   const applied = new Set(
     db.prepare('SELECT name FROM schema_migrations').all().map((r) => r.name)
   );

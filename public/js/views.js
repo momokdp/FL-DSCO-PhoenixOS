@@ -86,8 +86,11 @@ function missionCard(m, ctx) {
     ? Math.min(100, Math.round((m.pledged_qty / m.target_qty) * 100)) : 0;
 
   const volume = Number(m.item_volume) > 0 ? Number(m.item_volume) : 1;
-  const prime = Number(m.reward_multiplier) > 0 ? Number(m.reward_multiplier) : 1;
+  const primeMission = Number(m.reward_multiplier) > 0 ? Number(m.reward_multiplier) : 1;
+  const primeItem = Number(m.risk_bonus) > 0 ? Number(m.risk_bonus) : 1;
+  const prime = primeMission * primeItem;
   const parUnite = volume * prime;
+  const complete = restant <= 0;
 
   const actions = h('div.mission__actions');
   if (m.my_claim_id) {
@@ -97,6 +100,9 @@ function missionCard(m, ctx) {
       h('button.btn.btn--ghost.btn--sm', { type: 'button', onClick: () => abandonFlow(m, ctx) },
         t('mission.abandon')),
     );
+  } else if (complete) {
+    // Mission déjà entièrement couverte : la prendre ne servirait à rien.
+    actions.append(h('span.mission__full', t('mission.full')));
   } else {
     actions.append(
       h('button.btn.btn--steel', { type: 'button', onClick: () => claimFlow(m, ctx) },
@@ -141,8 +147,9 @@ function missionCard(m, ctx) {
     ),
 
     h('div.mission__reward',
-      h('span.mission__rewardMain', t('mission.pointsFor', { v: num(restant * parUnite) })),
-      prime !== 1 ? h('span.tag.tag--bonus', t('mission.riskBonus', { v: prime })) : null,
+      h('span.mission__rewardMain', t('mission.pointsFor', { v: num(m.target_qty * parUnite) })),
+      h('span.mission__rewardRate', t('mission.rate', { v: parUnite })),
+      prime !== 1 ? h('span.tag.tag--bonus', t('mission.riskBonus', { v: +prime.toFixed(2) })) : null,
     ),
 
     m.claimants.length
@@ -163,19 +170,24 @@ const figure = (label, value, tone = null, sub = null) =>
 
 async function claimFlow(m, ctx) {
   const restant = Math.max(0, m.target_qty - m.pledged_qty);
-  const champ = input({ type: 'number', name: 'pledged', min: '0', step: '1',
-    value: restant || m.target_qty, class: 'input--num' });
+  if (restant <= 0) { toast(t('mission.full'), 'err'); return; }
+
+  // Le champ est plafonné à ce qui reste : s'engager au-delà n'a pas de sens.
+  const champ = input({ type: 'number', name: 'pledged', min: '1', step: '1',
+    max: String(restant), value: restant, class: 'input--num' });
 
   const value = await modal({
     title: t('claim.title'),
     build: () => h('div',
       h('p', { style: 'margin-top:0' },
         `${t(`dir.${m.direction}Short`)} \u2014 `, h('strong', m.item_name), ` \u00b7 ${m.station_name}`),
-      field(t('claim.qtyLabel'), champ, t('claim.qtyHint')),
+      field(t('claim.qtyLabel'), champ,
+        `${t('mission.freeLeft', { v: num(restant) })} \u00b7 ${t('claim.qtyHint')}`),
     ),
     actions: [
       { label: t('common.cancel'), value: null },
-      { label: t('claim.confirm'), variant: 'primary', onClick: (c) => c(Number(champ.value) || 0) },
+      { label: t('claim.confirm'), variant: 'primary',
+        onClick: (c) => c(Math.min(restant, Math.max(1, Number(champ.value) || 0))) },
     ],
   });
 
@@ -237,12 +249,15 @@ export async function mineView(ctx) {
     ? panel(t('mine.active'), { count: claims.length, flush: true },
       h('table.table',
         h('thead', h('tr', ...[t('mine.colGoods'), t('mine.colDir'), t('mine.colStation'),
-          t('mine.colPledged'), t('mine.colSince'), ''].map((x) => h('th', x)))),
+          t('mine.colPledged'), t('mine.colWorth'), t('mine.colSince'), ''].map((x) => h('th', x)))),
         h('tbody', claims.map((c) => h('tr',
           h('td', h('strong', c.item_name)),
           h('td', h(`span.way.way--${c.direction}`, t(`dir.${c.direction}Short`))),
           h('td', c.station_name),
           h('td', { class: 'num' }, num(c.pledged_qty)),
+          h('td', { class: 'num is-ok', title: t('mine.estimated') },
+            `${num(c.pledged_qty * (Number(c.item_volume) || 1)
+              * (Number(c.reward_multiplier) || 1) * (Number(c.risk_bonus) || 1))} ${t('common.points')}`),
           h('td', { class: 'num' }, t('common.ago', { v: ago(c.claimed_at) })),
           h('td', { class: 'row-actions' },
             h('button.btn.btn--go.btn--sm', { type: 'button',
@@ -489,8 +504,8 @@ export async function routesView() {
 /* ========================================================== classement */
 
 export async function boardView(ctx) {
-  const jours = ctx.boardDays ||= 30;
-  const rows = await get(`/leaderboard?days=${jours}`);
+  const periode = ctx.boardPeriod ||= 'month';
+  const { rows, funds } = await get(`/leaderboard?period=${periode}`);
 
   const table = h('div.board');
   if (!rows.length) {
@@ -510,13 +525,48 @@ export async function boardView(ctx) {
   }
 
   return h('div',
-    h('div.head', h('span.eyebrow', t('board.eyebrow')), h('h1', t('board.title')),
-      h('p.hint', { style: 'margin:.4rem 0 0;max-width:60ch' }, t('board.explain'))),
-    h('div.toolbar', select(
-      [{ value: 7, label: t('board.days7') }, { value: 30, label: t('board.days30') },
-        { value: 365, label: t('board.days365') }],
-      { value: jours, onChange: (e) => { ctx.boardDays = Number(e.target.value); ctx.reload(); } },
-    )),
+    h('div.head', h('span.eyebrow', t('board.eyebrow')), h('h1', t('board.title'))),
+
+    // La cagnotte d'abord : c'est elle qui donne son sens au classement.
+    fundsBanner(funds),
+
+    h('div.toolbar', h('div.tabs',
+      ...[['month', t('board.month')], ['last', t('board.lastMonth')], ['year', t('board.year')]]
+        .map(([value, label]) => h('button.chip', {
+          type: 'button',
+          class: periode === value ? 'is-on' : null,
+          onClick: () => { ctx.boardPeriod = value; ctx.reload(); },
+        }, label))),
+    ),
+
+    h('p.hint', { style: 'margin:0 0 1rem;max-width:64ch' }, t('board.explain')),
     table,
+  );
+}
+
+/**
+ * Cagnotte du mois.
+ *
+ * L'API ne donne que le solde courant des stations : la variation se mesure
+ * contre le premier relevé du mois. Tant qu'il n'existe pas, on affiche le
+ * total sans prétendre connaître le gain.
+ */
+function fundsBanner(funds) {
+  if (!funds) return null;
+  return h('section.pot',
+    h('div.pot__main',
+      h('span.pot__label', t('board.gained')),
+      h('strong.pot__value', { class: funds.delta >= 0 ? 'is-up' : 'is-down' },
+        funds.hasBaseline ? signed(funds.delta) : num(funds.total)),
+      h('span.pot__unit', 'cr'),
+    ),
+    h('div.pot__side',
+      h('span.hint', funds.hasBaseline
+        ? `${t('board.funds')} : ${num(funds.total)} cr`
+        : t('board.noBaseline')),
+      h('span.hint', t('board.payoutNote')),
+    ),
+    h('div.pot__stations', funds.stations.map((s) =>
+      h('span.chip', { title: s.name }, s.code, h('b', ` ${num(s.money)}`)))),
   );
 }

@@ -24,7 +24,8 @@ export function stationInventory(stationId) {
       v.confirmed_qty, v.pending_qty, v.effective_qty,
       v.min_stock, v.max_stock, v.synced_at,
       v.api_min_stock, v.api_max_stock,
-      v.custom_min_stock, v.custom_max_stock, v.threshold_note, v.has_custom, v.is_export,
+      v.custom_min_stock, v.custom_max_stock, v.threshold_note, v.has_custom,
+      v.is_export, v.is_hidden, v.risk_bonus,
       CASE
         -- Marchandise produite : l'objectif est la soute vidée jusqu'au
         -- plancher. Un stock qui déborde le plafond devient alarmant.
@@ -78,7 +79,7 @@ export function syncState() {
  * Quand les deux redeviennent nuls, la ligne est supprimée : une table de
  * réglages ne doit contenir que de vrais réglages.
  */
-export function setThreshold({ stationId, itemId, minStock, maxStock, note, isExport, userId }) {
+export function setThreshold({ stationId, itemId, minStock, maxStock, note, isExport, isHidden, riskBonus, userId }) {
   const propre = (v) => (v === null || v === undefined || v === '' ? null : Number(v));
   const min = propre(minStock);
   const max = propre(maxStock);
@@ -94,21 +95,28 @@ export function setThreshold({ stationId, itemId, minStock, maxStock, note, isEx
   }
 
   const exporte = isExport ? 1 : 0;
+  const masque = isHidden ? 1 : 0;
+  // Bornée : une prime aberrante fausserait durablement le classement.
+  const prime = Math.min(10, Math.max(0.1, Number(riskBonus) || 1));
 
-  if (min === null && max === null && !exporte) {
+  if (min === null && max === null && !exporte && !masque && prime === 1) {
     db.prepare('DELETE FROM stock_thresholds WHERE station_id = ? AND item_id = ?')
       .run(stationId, itemId);
     return { ok: true, cleared: true };
   }
 
   db.prepare(`
-    INSERT INTO stock_thresholds (station_id, item_id, min_stock, max_stock, note, is_export, updated_by)
-    VALUES (@station_id, @item_id, @min_stock, @max_stock, @note, @is_export, @updated_by)
+    INSERT INTO stock_thresholds
+      (station_id, item_id, min_stock, max_stock, note, is_export, is_hidden, risk_bonus, updated_by)
+    VALUES
+      (@station_id, @item_id, @min_stock, @max_stock, @note, @is_export, @is_hidden, @risk_bonus, @updated_by)
     ON CONFLICT(station_id, item_id) DO UPDATE SET
       min_stock  = excluded.min_stock,
       max_stock  = excluded.max_stock,
       note       = excluded.note,
       is_export  = excluded.is_export,
+      is_hidden  = excluded.is_hidden,
+      risk_bonus = excluded.risk_bonus,
       updated_at = datetime('now'),
       updated_by = excluded.updated_by
   `).run({
@@ -118,6 +126,8 @@ export function setThreshold({ stationId, itemId, minStock, maxStock, note, isEx
     max_stock: max,
     note: note || null,
     is_export: exporte,
+    is_hidden: masque,
+    risk_bonus: prime,
     updated_by: userId || null,
   });
 
@@ -127,7 +137,8 @@ export function setThreshold({ stationId, itemId, minStock, maxStock, note, isEx
 /** Liste des seuils réglés à la main, tous stations confondues. */
 export function listThresholds() {
   return db.prepare(`
-    SELECT t.station_id, t.item_id, t.min_stock, t.max_stock, t.note, t.is_export, t.updated_at,
+    SELECT t.station_id, t.item_id, t.min_stock, t.max_stock, t.note,
+           t.is_export, t.is_hidden, t.risk_bonus, t.updated_at,
            st.name AS station_name, st.code AS station_code,
            i.name AS item_name,
            s.min_stock AS api_min_stock, s.max_stock AS api_max_stock,

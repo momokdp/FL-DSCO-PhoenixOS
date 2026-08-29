@@ -36,6 +36,7 @@ export const refreshAutoMissions = db.transaction(() => {
     FROM v_effective_stock v
     JOIN stations st ON st.id = v.station_id AND st.active = 1
     WHERE v.is_export = 0
+      AND v.is_hidden = 0
       AND v.max_stock > 0
       AND v.max_stock <= @plafond_absurde
       AND v.effective_qty < v.max_stock
@@ -49,6 +50,7 @@ export const refreshAutoMissions = db.transaction(() => {
     FROM v_effective_stock v
     JOIN stations st ON st.id = v.station_id AND st.active = 1
     WHERE v.is_export = 1
+      AND v.is_hidden = 0
       AND v.effective_qty > v.min_stock
   `).all({ plafond_absurde: PLAFOND_ABSURDE });
 
@@ -110,6 +112,7 @@ export function listOpenMissions({ stationId = null, direction = null, userId = 
       COALESCE(v.effective_qty, 0) AS current_qty,
       COALESCE(v.min_stock, 0) AS min_stock,
       COALESCE(v.max_stock, 0) AS max_stock,
+      COALESCE(v.risk_bonus, 1) AS risk_bonus,
       (SELECT COALESCE(SUM(c.pledged_qty), 0) FROM mission_claims c
         WHERE c.mission_id = m.id AND c.status = 'in_progress') AS pledged_qty,
       (SELECT COUNT(*) FROM mission_claims c
@@ -158,11 +161,33 @@ export function claimMission(missionId, userId, pledgedQty = 0) {
   `).get(missionId, userId);
   if (existing) return { ok: false, error: 'Vous êtes déjà engagé sur cette mission.' };
 
+  // Plusieurs pilotes peuvent se partager une mission, mais pas au-delà du
+  // besoin : sans ce contrôle, on pouvait s'engager sur une mission déjà
+  // entièrement couverte et livrer pour rien.
+  const dejaEngage = db.prepare(`
+    SELECT COALESCE(SUM(pledged_qty), 0) AS total FROM mission_claims
+    WHERE mission_id = ? AND status = 'in_progress'
+  `).get(missionId).total;
+
+  const libre = mission.target_qty - dejaEngage;
+  if (libre <= 0) {
+    return { ok: false, error: 'Cette mission est déjà entièrement couverte.', full: true };
+  }
+
+  const demande = Math.max(0, Number(pledgedQty) || 0);
+  if (demande > libre) {
+    return {
+      ok: false,
+      error: `Il ne reste que ${libre} unités à couvrir sur cette mission.`,
+      available: libre,
+    };
+  }
+
   const info = db.prepare(`
     INSERT INTO mission_claims (mission_id, user_id, pledged_qty) VALUES (?, ?, ?)
-  `).run(missionId, userId, Math.max(0, Number(pledgedQty) || 0));
+  `).run(missionId, userId, demande);
 
-  audit(userId, 'mission.claimed', 'missions', missionId, { pledged: pledgedQty });
+  audit(userId, 'mission.claimed', 'missions', missionId, { pledged: demande });
   broadcast('missions:changed', { missionId });
   return { ok: true, claimId: info.lastInsertRowid };
 }
@@ -174,10 +199,13 @@ export function claimMission(missionId, userId, pledgedQty = 0) {
 export const deliverClaim = db.transaction((claimId, userId, quantity, note = null) => {
   const claim = db.prepare(`
     SELECT c.*, m.station_id, m.item_id, m.direction, m.target_qty, m.auto,
-           m.reward_multiplier, i.volume AS item_volume, i.name AS item_name
+           m.reward_multiplier, i.volume AS item_volume, i.name AS item_name,
+           COALESCE(v.risk_bonus, 1) AS risk_bonus
     FROM mission_claims c
     JOIN missions m ON m.id = c.mission_id
     JOIN items i    ON i.id = m.item_id
+    LEFT JOIN v_effective_stock v
+           ON v.station_id = m.station_id AND v.item_id = m.item_id
     WHERE c.id = ? AND c.status = 'in_progress'
   `).get(claimId);
 
@@ -202,8 +230,12 @@ export const deliverClaim = db.transaction((claimId, userId, quantity, note = nu
   // autant. La valeur est figée maintenant : recalculer plus tard réécrirait
   // le classement des mois passés au moindre ajustement.
   const volume = Number(claim.item_volume) > 0 ? Number(claim.item_volume) : 1;
-  const prime = Number(claim.reward_multiplier) > 0 ? Number(claim.reward_multiplier) : 1;
-  const points = Math.round(qty * volume * prime);
+  const primeMission = Number(claim.reward_multiplier) > 0 ? Number(claim.reward_multiplier) : 1;
+  // Deux primes se cumulent : celle attachée à la marchandise (danger
+  // permanent : territoire pirate, butin sur PNJ) et celle propre à une
+  // mission créée à la main pour une circonstance particulière.
+  const primeItem = Number(claim.risk_bonus) > 0 ? Number(claim.risk_bonus) : 1;
+  const points = Math.round(qty * volume * primeMission * primeItem);
 
   db.prepare(`
     UPDATE mission_claims
@@ -254,6 +286,8 @@ export function abandonClaim(claimId, userId) {
 export function myClaims(userId) {
   return db.prepare(`
     SELECT c.id AS claim_id, c.pledged_qty, c.claimed_at,
+           i.volume AS item_volume, m.reward_multiplier,
+           COALESCE(v.risk_bonus, 1) AS risk_bonus,
            m.id AS mission_id, m.direction, m.target_qty, m.origin,
            st.name AS station_name, st.code AS station_code,
            i.name AS item_name, i.vendor_hint
@@ -261,6 +295,8 @@ export function myClaims(userId) {
     JOIN missions m ON m.id = c.mission_id
     JOIN stations st ON st.id = m.station_id
     JOIN items i ON i.id = m.item_id
+    LEFT JOIN v_effective_stock v
+           ON v.station_id = m.station_id AND v.item_id = m.item_id
     WHERE c.user_id = ? AND c.status = 'in_progress'
     ORDER BY c.claimed_at
   `).all(userId);
@@ -274,20 +310,82 @@ export function myClaims(userId) {
  * brutes : celles-ci défavorisaient les marchandises volumineuses, qui
  * demandent pourtant autant de trajets.
  */
-export function leaderboard(days = 30) {
+/**
+ * Classement.
+ *
+ * La période par défaut est le MOIS CIVIL en cours, et non les trente
+ * derniers jours : la répartition des gains se fait au premier du mois sur
+ * l'activité du mois écoulé. Une fenêtre glissante ferait sortir du
+ * classement des runs qui doivent encore être payés.
+ *
+ * `period` vaut 'month' (mois en cours), 'last' (mois précédent, utile le
+ * jour de la paye) ou 'year'.
+ */
+export function leaderboard(period = 'month') {
+  const FENETRES = {
+    month: ["date('now','start of month')", "date('now','start of month','+1 month')"],
+    last:  ["date('now','start of month','-1 month')", "date('now','start of month')"],
+    year:  ["date('now','start of year')", "date('now','start of year','+1 year')"],
+  };
+  const [debut, fin] = FENETRES[period] || FENETRES.month;
+
   return db.prepare(`
     SELECT u.id, u.display_name, u.callsign, u.avatar,
-           COUNT(*)                    AS runs,
-           SUM(c.delivered_qty)        AS units,
-           SUM(c.points)               AS points
+           COUNT(*)             AS runs,
+           SUM(c.delivered_qty) AS units,
+           SUM(c.points)        AS points
     FROM mission_claims c
     JOIN users u ON u.id = c.user_id
     WHERE c.status = 'delivered'
-      AND c.closed_at >= datetime('now', ?)
+      AND c.closed_at >= ${debut}
+      AND c.closed_at <  ${fin}
     GROUP BY u.id
     ORDER BY points DESC, units DESC
     LIMIT 50
-  `).all(`-${Math.max(1, days)} days`);
+  `).all();
+}
+
+/**
+ * Fonds des stations et variation depuis le début du mois.
+ *
+ * L'API ne donne que le solde courant : la variation se calcule contre le
+ * premier relevé quotidien du mois. Ce n'est pas un chiffre d'affaires au
+ * sens comptable — les dépenses de la station y sont déduites — mais c'est
+ * la seule mesure disponible, et c'est celle qui alimente la répartition.
+ */
+export function monthlyFunds() {
+  // Les fonds vivent dans station_status, écrasé à chaque synchronisation.
+  const total = db.prepare(`
+    SELECT COALESCE(SUM(ss.money), 0) AS v
+    FROM station_status ss
+    JOIN stations st ON st.id = ss.station_id AND st.active = 1
+  `).get().v;
+
+  const base = db.prepare(`
+    SELECT COALESCE(SUM(l.money), 0) AS v
+    FROM station_funds_log l
+    JOIN stations st ON st.id = l.station_id AND st.active = 1
+    WHERE l.day = (
+      SELECT MIN(day) FROM station_funds_log
+      WHERE day >= strftime('%Y-%m-01', 'now')
+    )
+  `).get().v;
+
+  const parStation = db.prepare(`
+    SELECT st.id, st.name, st.code, COALESCE(ss.money, 0) AS money
+    FROM stations st
+    LEFT JOIN station_status ss ON ss.station_id = st.id
+    WHERE st.active = 1 ORDER BY st.sort_order, st.name
+  `).all();
+
+  return {
+    total,
+    baseline: base,
+    delta: base > 0 ? total - base : 0,
+    hasBaseline: base > 0,
+    stations: parStation,
+    month: new Date().toISOString().slice(0, 7),
+  };
 }
 
 /* ------------------------------------------------- historique et annulation */

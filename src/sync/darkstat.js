@@ -191,6 +191,17 @@ function writeSnapshots(pobs, stamp = nowSql()) {
       if (!pob) { missing.push(station.api_name); continue; }
       stationsSeen++;
 
+      // Un point par station et par jour : suffisant pour mesurer la
+      // variation mensuelle des fonds, et négligeable en volume.
+      if (pob.money != null) {
+        db.prepare(`
+          INSERT INTO station_funds_log (station_id, day, money)
+          VALUES (?, date('now'), ?)
+          ON CONFLICT(station_id, day) DO UPDATE SET
+            money = excluded.money, recorded_at = datetime('now')
+        `).run(station.id, Number(pob.money) || 0);
+      }
+
       const systeme = String(pob.system_name || '').trim();
       if (systeme) completerSysteme.run(systeme, station.id);
 

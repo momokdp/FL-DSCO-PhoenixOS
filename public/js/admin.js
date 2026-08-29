@@ -188,6 +188,8 @@ async function thresholdsPane(ctx) {
   const rendre = () => {
     const q = filtre.value.trim().toLowerCase();
     const lignes = inventaire.filter((r) => !q || r.name.toLowerCase().includes(q));
+    // Les marchandises réglées remontent : ce sont celles qu'on revient voir.
+    lignes.sort((a, b) => (b.has_custom | 0) - (a.has_custom | 0) || a.name.localeCompare(b.name));
 
     if (!lignes.length) {
       host.replaceChildren(empty(
@@ -199,17 +201,22 @@ async function thresholdsPane(ctx) {
 
     host.replaceChildren(table(
       [{ label: 'Marchandise' }, { label: 'Sens' }, { label: 'En soute', num: true },
-        { label: 'Seuil bas retenu', num: true }, { label: 'Plafond retenu', num: true },
-        { label: 'Valeurs de l\'API' }, { label: '' }],
+        { label: 'Seuil bas', num: true }, { label: 'Plafond', num: true },
+        { label: 'Prime', num: true }, { label: 'API' }, { label: '' }],
       lignes,
-      (r) => h('tr', { class: r.has_custom ? 'is-custom' : null },
+      (r) => h('tr', { class: [r.has_custom ? 'is-custom' : '', r.is_hidden ? 'is-off' : ''].filter(Boolean).join(' ') || null },
         h('td', h('strong', r.name),
           r.threshold_note ? h('em.hint', r.threshold_note) : null),
-        h('td', h(`span.mission__dir.mission__dir--${r.is_export ? 'export' : 'import'}`,
-          r.is_export ? 'À enlever' : 'À livrer')),
+        h('td',
+          r.is_hidden
+            ? h('span.way', { title: 'Retirée du tableau des missions' }, 'Masquée')
+            : h(`span.way.way--${r.is_export ? 'export' : 'import'}`,
+              r.is_export ? 'À enlever' : 'À livrer')),
         h('td', { class: 'num' }, num(r.effective_qty)),
         h('td', { class: `num ${r.custom_min_stock != null ? 'is-ok' : ''}` }, num(r.min_stock)),
         h('td', { class: `num ${r.custom_max_stock != null ? 'is-ok' : ''}` }, num(r.max_stock)),
+        h('td', { class: `num ${r.risk_bonus > 1 ? 'is-ok' : ''}` },
+          r.risk_bonus > 1 ? `×${r.risk_bonus}` : '—'),
         h('td', h('em.hint', `${num(r.api_min_stock)} → ${num(r.api_max_stock)}`)),
         rowActions(
           editBtn(() => regler(r)),
@@ -227,6 +234,9 @@ async function thresholdsPane(ctx) {
     const note = input({ name: 'note', value: r.threshold_note || '',
       placeholder: 'Pourquoi cette valeur ? (facultatif)' });
     const exporter = h('input', { type: 'checkbox', name: 'is_export', checked: !!r.is_export });
+    const masquer = h('input', { type: 'checkbox', name: 'is_hidden', checked: !!r.is_hidden });
+    const prime = input({ type: 'number', name: 'risk_bonus', min: '0.1', max: '10', step: '0.1',
+      class: 'input--num', value: r.risk_bonus ?? 1 });
 
     const valeurs = await modal({
       title: r.name,
@@ -243,6 +253,14 @@ async function thresholdsPane(ctx) {
           'Cochez pour une marchandise que la station produit : la mission s\'ouvrira ' +
           'quand le stock DÉPASSE le plafond, pour venir chercher le surplus. ' +
           'Décochée, la mission s\'ouvre quand le stock passe SOUS le seuil bas.'),
+        field('Prime de risque permanente', prime,
+          'Multiplie les points de toute livraison de cette marchandise ici. ' +
+          '1 = trajet ordinaire. Utilisez-la pour ce qui traverse un territoire ' +
+          'pirate ou s\'obtient au combat. Se cumule avec la prime ponctuelle ' +
+          'd\'une mission créée à la main.'),
+        field('Masquer cette marchandise', masquer,
+          'Aucune mission ne sera ouverte, et celles en cours seront closes. ' +
+          'Pour ce qui ne se produit que sur commande.'),
         field('Note', note),
       ),
       actions: [
@@ -251,6 +269,8 @@ async function thresholdsPane(ctx) {
           min_stock: min.value === '' ? null : Number(min.value),
           max_stock: max.value === '' ? null : Number(max.value),
           is_export: exporter.checked ? 1 : 0,
+          is_hidden: masquer.checked ? 1 : 0,
+          risk_bonus: Number(prime.value) || 1,
           note: note.value.trim() || null,
         }) },
       ],
@@ -270,7 +290,8 @@ async function thresholdsPane(ctx) {
       'Rétablir')) return;
     try {
       await put(`/admin/stations/${ctx.seuilStation}/thresholds/${r.item_id}`,
-        { min_stock: null, max_stock: null, is_export: 0, note: null });
+        { min_stock: null, max_stock: null, is_export: 0, is_hidden: 0,
+          risk_bonus: 1, note: null });
       toast('Valeurs de l\'API rétablies.');
       charger();
     } catch (e) { notifyError(e); }
