@@ -198,13 +198,15 @@ async function thresholdsPane(ctx) {
     }
 
     host.replaceChildren(table(
-      [{ label: 'Marchandise' }, { label: 'En soute', num: true },
+      [{ label: 'Marchandise' }, { label: 'Sens' }, { label: 'En soute', num: true },
         { label: 'Seuil bas retenu', num: true }, { label: 'Plafond retenu', num: true },
         { label: 'Valeurs de l\'API' }, { label: '' }],
       lignes,
       (r) => h('tr', { class: r.has_custom ? 'is-custom' : null },
         h('td', h('strong', r.name),
           r.threshold_note ? h('em.hint', r.threshold_note) : null),
+        h('td', h(`span.mission__dir.mission__dir--${r.is_export ? 'export' : 'import'}`,
+          r.is_export ? 'À enlever' : 'À livrer')),
         h('td', { class: 'num' }, num(r.effective_qty)),
         h('td', { class: `num ${r.custom_min_stock != null ? 'is-ok' : ''}` }, num(r.min_stock)),
         h('td', { class: `num ${r.custom_max_stock != null ? 'is-ok' : ''}` }, num(r.max_stock)),
@@ -224,6 +226,7 @@ async function thresholdsPane(ctx) {
       class: 'input--num', value: r.custom_max_stock ?? '' });
     const note = input({ name: 'note', value: r.threshold_note || '',
       placeholder: 'Pourquoi cette valeur ? (facultatif)' });
+    const exporter = h('input', { type: 'checkbox', name: 'is_export', checked: !!r.is_export });
 
     const valeurs = await modal({
       title: r.name,
@@ -236,6 +239,10 @@ async function thresholdsPane(ctx) {
           'Laisser vide pour garder la valeur de l\'API.'),
         field('Plafond', max,
           'Sert de repère haut sur la jauge. Laisser vide pour garder la valeur de l\'API.'),
+        field('Marchandise produite, à enlever', exporter,
+          'Cochez pour une marchandise que la station produit : la mission s\'ouvrira ' +
+          'quand le stock DÉPASSE le plafond, pour venir chercher le surplus. ' +
+          'Décochée, la mission s\'ouvre quand le stock passe SOUS le seuil bas.'),
         field('Note', note),
       ),
       actions: [
@@ -243,6 +250,7 @@ async function thresholdsPane(ctx) {
         { label: 'Enregistrer', variant: 'primary', onClick: (close) => close({
           min_stock: min.value === '' ? null : Number(min.value),
           max_stock: max.value === '' ? null : Number(max.value),
+          is_export: exporter.checked ? 1 : 0,
           note: note.value.trim() || null,
         }) },
       ],
@@ -262,7 +270,7 @@ async function thresholdsPane(ctx) {
       'Rétablir')) return;
     try {
       await put(`/admin/stations/${ctx.seuilStation}/thresholds/${r.item_id}`,
-        { min_stock: null, max_stock: null, note: null });
+        { min_stock: null, max_stock: null, is_export: 0, note: null });
       toast('Valeurs de l\'API rétablies.');
       charger();
     } catch (e) { notifyError(e); }
@@ -300,6 +308,10 @@ async function missionsPane(ctx) {
         { value: 'normal', label: 'Normale' }, { value: 'high', label: 'Haute' },
         { value: 'critical', label: 'Critique' }, { value: 'low', label: 'Basse' },
       ], { name: 'priority' })),
+      field('Prime de risque', input({ type: 'number', name: 'reward_multiplier',
+        min: '0.1', max: '10', step: '0.1', value: '1', class: 'input--num' }),
+      'Multiplie les points gagnés. 1 = trajet ordinaire, 1.5 = passage exposé, ' +
+      '2 = franchement dangereux. Figée à la livraison.'),
     ], { submitLabel: 'Ouvrir la mission' });
     if (!values) return;
     try {

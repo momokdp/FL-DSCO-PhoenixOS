@@ -419,18 +419,23 @@ export async function boardView(ctx) {
   const table = h('div.board');
   if (!rows.length) {
     table.appendChild(empty('Rien à classer',
-      'Le classement compte les tonnages livrés. Il se remplira dès les premières missions validées.'));
+      'Le classement compte les points de mérite : quantité livrée multipliée par le ' +
+      'volume de la marchandise, puis par la prime de risque de la mission.'));
   } else {
     rows.forEach((r, i) => table.appendChild(h('div.board__row',
       h('span.board__rank', String(i + 1).padStart(2, '0')),
       h('strong', r.callsign || r.display_name),
       h('span.board__runs', `${num(r.runs)} run${r.runs > 1 ? 's' : ''}`),
-      h('span.board__units', `${num(r.units)} u`),
+      h('span.board__units', { title: `${num(r.units)} unités transportées` },
+        `${num(r.points)} pts`),
     )));
   }
 
   return h('div',
-    h('div.head', h('span.eyebrow', 'Mérite'), h('h1', 'Classement des pilotes')),
+    h('div.head', h('span.eyebrow', 'Mérite'), h('h1', 'Classement des pilotes'),
+      h('p.hint', { style: 'margin:.4rem 0 0' },
+        'Points = quantité × volume unitaire × prime de risque. ' +
+        'Le volume égalise l\'effort entre marchandises légères et encombrantes.')),
     h('div.toolbar', select(
       [{ value: 7, label: '7 jours' }, { value: 30, label: '30 jours' }, { value: 365, label: 'Année' }],
       { value: state, onChange: (e) => { ctx.boardDays = Number(e.target.value); ctx.reload(); } },

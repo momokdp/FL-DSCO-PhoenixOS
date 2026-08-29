@@ -35,7 +35,7 @@ se trompe ou si une livraison échoue en jeu, le prochain relevé corrige tout s
 
 ---
 
-## Installation sur Debian (recommandé)
+## Installation
 
 ### En une commande
 
@@ -151,112 +151,6 @@ cd /root/kadesh && git pull && sudo bash install/install-debian.sh
 
 ---
 
-## Installation sur Windows Server
-
-### 1. Node.js
-
-Installez la version **LTS 20 ou supérieure** depuis <https://nodejs.org>.
-Vérifiez dans une nouvelle fenêtre PowerShell :
-
-```powershell
-node --version
-```
-
-### 2. Déposer le projet
-
-Copiez le dossier, par exemple dans `D:\kadesh`, puis :
-
-```powershell
-cd D:\kadesh
-npm install --omit=dev
-```
-
-### 3. Créer l'application Discord
-
-> Cette étape est commune aux deux plateformes.
-
-1. Rendez-vous sur <https://discord.com/developers/applications> → **New Application**.
-2. Onglet **OAuth2** → notez le *Client ID* et le *Client Secret*.
-3. Toujours dans **OAuth2**, ajoutez une **Redirect URL**, exactement :
-   `https://votre-domaine.fr/auth/discord/callback`
-
-   Cette adresse doit correspondre au caractère près à votre `BASE_URL` suivie de
-   `/auth/discord/callback`. Un `http` au lieu de `https`, un port oublié ou une
-   barre oblique en trop font échouer la connexion avec une erreur `invalid_redirect_uri`.
-
-4. Récupérez votre identifiant Discord personnel : Discord → Paramètres →
-   Avancés → **Mode développeur**, puis clic droit sur votre nom → *Copier l'ID*.
-
-### 4. Configurer
-
-```powershell
-copy .env.example .env
-notepad .env
-```
-
-Générez le secret de session :
-
-```powershell
-node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
-```
-
-Renseignez au minimum `BASE_URL`, `SESSION_SECRET`, `DISCORD_CLIENT_ID`,
-`DISCORD_CLIENT_SECRET` et `BOOTSTRAP_ADMIN_IDS`.
-
-> `BOOTSTRAP_ADMIN_IDS` est indispensable au premier démarrage : sans lui, le
-> premier compte connecté sera un simple pilote et personne ne pourra rien
-> administrer.
-
-### 5. Premier essai
-
-```powershell
-npm start
-```
-
-Ouvrez `http://localhost:3000/healthz` : vous devez obtenir `{"status":"ok",...}`.
-Arrêtez avec `Ctrl+C`.
-
-### 6. Installer en service
-
-Téléchargez NSSM sur <https://nssm.cc/download>, décompressez-le dans `C:\nssm`,
-puis, dans une PowerShell **ouverte en administrateur** :
-
-```powershell
-cd D:\kadesh
-.\install\install-service.ps1
-```
-
-Le service démarre automatiquement au démarrage de la machine, redémarre en cas
-d'arrêt inopiné, et écrit ses journaux dans `logs\`.
-
-```powershell
-C:\nssm\nssm.exe restart KadeshConsole
-Get-Content logs\console.log -Wait -Tail 40
-```
-
-### 7. Publier sur Internet
-
-L'application écoute en HTTP sur le port 3000. Ne l'exposez pas directement :
-placez-la derrière IIS avec **URL Rewrite** et **Application Request Routing**,
-qui apporteront le certificat TLS. Le serveur est déjà réglé pour lire les
-en-têtes de mandataire (`trust proxy`).
-
-Règle de réécriture, dans le `web.config` du site IIS :
-
-```xml
-<rule name="Kadesh" stopProcessing="true">
-  <match url="(.*)" />
-  <action type="Rewrite" url="http://localhost:3000/{R:1}" />
-</rule>
-```
-
-> Le flux temps réel utilise Server-Sent Events. Dans ARR, portez le
-> *proxy timeout* à au moins 120 secondes et **désactivez la mise en mémoire
-> tampon des réponses**, sinon les mises à jour n'arriveront qu'à la fermeture
-> de la connexion.
-
----
-
 ## Premiers pas
 
 1. Connectez-vous avec Discord : votre compte est promu administrateur.
@@ -315,11 +209,7 @@ sudo crontab -u kadesh -e
 Pensez à recopier ces fichiers hors du serveur : une sauvegarde qui ne quitte
 pas la machine ne protège de rien.
 
-Sous Windows, la même commande fonctionne dans une tâche planifiée :
 
-```powershell
-node -e "require('better-sqlite3')('data/kadesh.sqlite').backup('data/sauvegarde-'+new Date().toISOString().slice(0,10)+'.sqlite')"
-```
 
 ### Diagnostic
 
@@ -328,7 +218,7 @@ node -e "require('better-sqlite3')('data/kadesh.sqlite').backup('data/sauvegarde
 | Une soute reste vide | *Nom exact dans l'API* mal orthographié. Comparez avec la réponse de `/api/pobs`. |
 | `invalid_redirect_uri` à la connexion | L'URL de redirection Discord ne correspond pas exactement à `BASE_URL` + `/auth/discord/callback`. |
 | Relevés en échec | Consultez **Gestion → Synchronisation** : la colonne *Message* donne la cause. |
-| Les mises à jour n'arrivent pas en direct | Mise en tampon du proxy. Sous nginx, vérifiez le bloc `/api/events` ; sous IIS, désactivez la mise en tampon dans ARR. |
+| Les mises à jour n'arrivent pas en direct | Mise en tampon du proxy : vérifiez le bloc `/api/events` de nginx. |
 | `EACCES` au démarrage sous Linux | `data/` n'appartient pas à l'utilisateur `kadesh`. `sudo chown -R kadesh:kadesh /opt/kadesh`. |
 | Personne n'est administrateur | Ajoutez l'identifiant dans `BOOTSTRAP_ADMIN_IDS` et redémarrez le service. |
 

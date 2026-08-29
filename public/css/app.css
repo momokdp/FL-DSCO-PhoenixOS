@@ -525,9 +525,20 @@ a:hover { text-decoration: underline; }
    ===================================================================== */
 
 /* ------------------------------------------------------- chips filtrantes */
-.chip.is-on {
-  background: var(--amber); border-color: var(--amber);
-  color: var(--void); font-weight: 600;
+/**
+ * Onglet actif : lisibilité.
+ *
+ * Deux règles se disputaient ces boutons. « .chip.is-on » posait un fond
+ * ambre, tandis que « .tabs button.is-on », plus spécifique, imposait un
+ * texte ambre : le libellé devenait invisible, ambre sur ambre. À
+ * l'intérieur d'un jeu d'onglets, le style de soulignement l'emporte.
+ */
+.tabs .chip.is-on {
+  background: transparent;
+  color: var(--amber);
+  border-color: transparent;
+  border-bottom: 2px solid var(--amber);
+  font-weight: 600;
 }
 
 /* --------------------------------------------------------- tons partagés */

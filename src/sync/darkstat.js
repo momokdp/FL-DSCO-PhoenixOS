@@ -146,13 +146,15 @@ function writeSnapshots(pobs, stamp = nowSql()) {
   const stations = db.prepare('SELECT id, api_name FROM stations WHERE active = 1').all();
   const index = indexerBases(pobs);
 
-  const findItem = db.prepare('SELECT id, commodity_id FROM items WHERE name = ? COLLATE NOCASE');
+  const findItem = db.prepare('SELECT id, commodity_id, volume FROM items WHERE name = ? COLLATE NOCASE');
   const insertItem = db.prepare(
-    'INSERT INTO items (name, commodity_id, category) VALUES (?, ?, ?)');
+    'INSERT INTO items (name, commodity_id, category, volume) VALUES (?, ?, ?, ?)');
   // Les marchandises créées avant que l'API ne fournisse leur identifiant
   // restent orphelines : on le complète dès qu'il apparaît.
   const completerItem = db.prepare(
     'UPDATE items SET commodity_id = ? WHERE id = ? AND (commodity_id IS NULL OR commodity_id = \'\')');
+  // Le volume unitaire sert au calcul des points : on le suit à chaque relevé.
+  const majVolume = db.prepare('UPDATE items SET volume = ? WHERE id = ? AND volume <> ?');
   const upsertStock = db.prepare(`
     INSERT INTO stock_snapshots
       (station_id, item_id, quantity, min_stock, max_stock, price, is_selling, synced_at)
@@ -203,11 +205,16 @@ function writeSnapshots(pobs, stamp = nowSql()) {
         const nickname = String(raw.nickname || '').trim() || null;
         const categorie = String(raw.category || 'commodity').trim() || 'commodity';
 
+        // darkstat expose le volume unitaire ; à défaut, une unité vaut 1.
+        const vol = Number(raw.volume ?? raw.original_volume);
+        const volume = Number.isFinite(vol) && vol > 0 ? vol : 1;
+
         let item = findItem.get(name);
         if (!item) {
-          item = { id: insertItem.run(name, nickname, categorie).lastInsertRowid };
-        } else if (nickname && !item.commodity_id) {
-          completerItem.run(nickname, item.id);
+          item = { id: insertItem.run(name, nickname, categorie, volume).lastInsertRowid };
+        } else {
+          if (nickname && !item.commodity_id) completerItem.run(nickname, item.id);
+          majVolume.run(volume, item.id, volume);
         }
 
         const qty = Number(raw.quantity) || 0;

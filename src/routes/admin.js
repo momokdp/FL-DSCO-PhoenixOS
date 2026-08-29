@@ -263,17 +263,22 @@ adminRouter.post('/recipes/import', admin, async (req, res) => {
 // Missions créées à la main
 // ===================================================================
 adminRouter.post('/missions', officer, (req, res) => {
-  const { station_id, item_name, direction, target_qty, origin, priority } = req.body || {};
+  const { station_id, item_name, direction, target_qty, origin, priority,
+          reward_multiplier } = req.body || {};
   const itemId = itemIdByName(item_name);
   if (!station_id || !itemId) return fail(res, 400, 'Station et marchandise sont obligatoires.');
 
+  // Prime de risque : multiplicateur des points. Bornée pour éviter qu'une
+  // saisie erronée ne fausse durablement le classement.
+  const prime = Math.min(10, Math.max(0.1, Number(reward_multiplier) || 1));
+
   try {
     const info = db.prepare(`
-      INSERT INTO missions (station_id, item_id, direction, target_qty, origin, priority, status, auto, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, 'open', 0, ?)
+      INSERT INTO missions (station_id, item_id, direction, target_qty, origin, priority, status, auto, reward_multiplier, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, 'open', 0, ?, ?)
     `).run(
       num(station_id), itemId, direction === 'export' ? 'export' : 'import',
-      num(target_qty) ?? 0, str(origin), str(priority) || 'normal', req.user.id
+      num(target_qty) ?? 0, str(origin), str(priority) || 'normal', prime, req.user.id
     );
     audit(req.user.id, 'mission.created', 'missions', info.lastInsertRowid);
     broadcast('missions:changed', {});
@@ -411,6 +416,7 @@ adminRouter.put('/stations/:id/thresholds/:itemId', officer, (req, res) => {
     minStock: req.body.min_stock,
     maxStock: req.body.max_stock,
     note: req.body.note,
+    isExport: req.body.is_export,
     userId: req.user.id,
   });
   if (!result.ok) return res.status(400).json({ error: result.error });

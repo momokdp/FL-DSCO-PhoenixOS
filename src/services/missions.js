@@ -7,18 +7,31 @@ import { broadcast } from './events.js';
  * du seuil ; les missions créées à la main ne sont jamais touchées.
  */
 export const refreshAutoMissions = db.transaction(() => {
-  const deficits = db.prepare(`
-    SELECT v.station_id, v.item_id, v.min_stock - v.effective_qty AS deficit
+  // Deux besoins symétriques :
+  //  - une marchandise consommée passe sous son seuil bas -> l'apporter
+  //  - une marchandise produite dépasse son plafond -> venir l'enlever
+  // Le sens est réglé par marchandise et par station dans « Seuils ».
+  const besoins = db.prepare(`
+    SELECT v.station_id, v.item_id, 'import' AS direction,
+           v.min_stock - v.effective_qty AS qty
     FROM v_effective_stock v
     JOIN stations st ON st.id = v.station_id AND st.active = 1
-    WHERE v.min_stock > 0 AND v.effective_qty < v.min_stock
+    WHERE v.is_export = 0 AND v.min_stock > 0 AND v.effective_qty < v.min_stock
+
+    UNION ALL
+
+    SELECT v.station_id, v.item_id, 'export' AS direction,
+           v.effective_qty - v.max_stock AS qty
+    FROM v_effective_stock v
+    JOIN stations st ON st.id = v.station_id AND st.active = 1
+    WHERE v.is_export = 1 AND v.max_stock > 0 AND v.effective_qty > v.max_stock
   `).all();
 
-  const wanted = new Set(deficits.map(d => `${d.station_id}:${d.item_id}`));
+  const wanted = new Set(besoins.map(d => `${d.station_id}:${d.item_id}:${d.direction}`));
 
   // Fermer les missions auto dont le besoin est comblé, sauf si un pilote est en route.
   const autos = db.prepare(`
-    SELECT m.id, m.station_id, m.item_id,
+    SELECT m.id, m.station_id, m.item_id, m.direction,
            (SELECT COUNT(*) FROM mission_claims c
              WHERE c.mission_id = m.id AND c.status = 'in_progress') AS active_claims
     FROM missions m WHERE m.auto = 1 AND m.status = 'open'
@@ -26,29 +39,32 @@ export const refreshAutoMissions = db.transaction(() => {
 
   const close = db.prepare(`UPDATE missions SET status='fulfilled', closed_at=datetime('now') WHERE id = ?`);
   for (const m of autos) {
-    if (!wanted.has(`${m.station_id}:${m.item_id}`) && m.active_claims === 0) close.run(m.id);
+    if (!wanted.has(`${m.station_id}:${m.item_id}:${m.direction}`) && m.active_claims === 0) close.run(m.id);
   }
 
   const upsert = db.prepare(`
     INSERT INTO missions (station_id, item_id, direction, target_qty, priority, status, auto)
-    VALUES (@station_id, @item_id, 'import', @target_qty, @priority, 'open', 1)
+    VALUES (@station_id, @item_id, @direction, @target_qty, @priority, 'open', 1)
     ON CONFLICT(station_id, item_id, direction) WHERE status = 'open'
       DO UPDATE SET target_qty = excluded.target_qty, priority = excluded.priority
   `);
 
+  const dejaManuelle = db.prepare(`
+    SELECT 1 FROM missions
+    WHERE station_id = ? AND item_id = ? AND direction = ? AND status = 'open' AND auto = 0
+  `);
+
   let created = 0;
-  for (const d of deficits) {
-    const manual = db.prepare(`
-      SELECT 1 FROM missions
-      WHERE station_id = ? AND item_id = ? AND direction = 'import' AND status = 'open' AND auto = 0
-    `).get(d.station_id, d.item_id);
-    if (manual) continue;
+  for (const d of besoins) {
+    // Une mission ouverte à la main fait autorité : on ne la double pas.
+    if (dejaManuelle.get(d.station_id, d.item_id, d.direction)) continue;
 
     upsert.run({
       station_id: d.station_id,
       item_id: d.item_id,
-      target_qty: Math.max(1, Math.round(d.deficit)),
-      priority: d.deficit >= 500 ? 'critical' : d.deficit >= 150 ? 'high' : 'normal',
+      direction: d.direction,
+      target_qty: Math.max(1, Math.round(d.qty)),
+      priority: d.qty >= 500 ? 'critical' : d.qty >= 150 ? 'high' : 'normal',
     });
     created++;
   }
@@ -127,8 +143,11 @@ export function claimMission(missionId, userId, pledgedQty = 0) {
  */
 export const deliverClaim = db.transaction((claimId, userId, quantity, note = null) => {
   const claim = db.prepare(`
-    SELECT c.*, m.station_id, m.item_id, m.direction, m.target_qty, m.auto
-    FROM mission_claims c JOIN missions m ON m.id = c.mission_id
+    SELECT c.*, m.station_id, m.item_id, m.direction, m.target_qty, m.auto,
+           m.reward_multiplier, i.volume AS item_volume, i.name AS item_name
+    FROM mission_claims c
+    JOIN missions m ON m.id = c.mission_id
+    JOIN items i    ON i.id = m.item_id
     WHERE c.id = ? AND c.status = 'in_progress'
   `).get(claimId);
 
@@ -145,9 +164,22 @@ export const deliverClaim = db.transaction((claimId, userId, quantity, note = nu
     VALUES (?, ?, ?, 'mission', ?, ?, ?, ?)
   `).run(claim.station_id, claim.item_id, delta, claimId, userId, note, nowSql());
 
+  // Points de mérite : quantité × volume unitaire × prime de risque.
+  //
+  // Le volume égalise l'effort : un vaisseau de 5 000 de soute emporte 5 000
+  // unités d'un bien de volume 1, ou 2 500 d'un bien de volume 2. Dans les
+  // deux cas le pilote a rempli sa cale et fait le même trajet, donc marque
+  // autant. La valeur est figée maintenant : recalculer plus tard réécrirait
+  // le classement des mois passés au moindre ajustement.
+  const volume = Number(claim.item_volume) > 0 ? Number(claim.item_volume) : 1;
+  const prime = Number(claim.reward_multiplier) > 0 ? Number(claim.reward_multiplier) : 1;
+  const points = Math.round(qty * volume * prime);
+
   db.prepare(`
-    UPDATE mission_claims SET status='delivered', delivered_qty=?, closed_at=datetime('now') WHERE id = ?
-  `).run(qty, claimId);
+    UPDATE mission_claims
+    SET status='delivered', delivered_qty=?, points=?, closed_at=datetime('now')
+    WHERE id = ?
+  `).run(qty, points, claimId);
 
   // La mission se ferme si le besoin est couvert et que personne d'autre n'est en route.
   const remaining = db.prepare(`
@@ -167,7 +199,7 @@ export const deliverClaim = db.transaction((claimId, userId, quantity, note = nu
   audit(userId, 'mission.delivered', 'missions', claim.mission_id, { qty, delta });
   broadcast('missions:changed', { missionId: claim.mission_id });
   broadcast('stock:updated', { stationId: claim.station_id });
-  return { ok: true, delivered: qty };
+  return { ok: true, delivered: qty, points };
 });
 
 /** Le pilote se désengage sans livrer. Aucun mouvement de stock. */
@@ -199,16 +231,25 @@ export function myClaims(userId) {
 }
 
 /** Classement des pilotes sur une fenêtre glissante. */
+/**
+ * Classement au mérite.
+ *
+ * On s'appuie sur les points figés à la livraison, et non sur les unités
+ * brutes : celles-ci défavorisaient les marchandises volumineuses, qui
+ * demandent pourtant autant de trajets.
+ */
 export function leaderboard(days = 30) {
   return db.prepare(`
     SELECT u.id, u.display_name, u.callsign, u.avatar,
-           COUNT(*) AS runs,
-           SUM(ABS(a.delta)) AS units
-    FROM stock_adjustments a
-    JOIN users u ON u.id = a.user_id
-    WHERE a.source = 'mission' AND a.created_at >= datetime('now', ?)
+           COUNT(*)                    AS runs,
+           SUM(c.delivered_qty)        AS units,
+           SUM(c.points)               AS points
+    FROM mission_claims c
+    JOIN users u ON u.id = c.user_id
+    WHERE c.status = 'delivered'
+      AND c.closed_at >= datetime('now', ?)
     GROUP BY u.id
-    ORDER BY units DESC
-    LIMIT 20
+    ORDER BY points DESC, units DESC
+    LIMIT 50
   `).all(`-${Math.max(1, days)} days`);
 }
