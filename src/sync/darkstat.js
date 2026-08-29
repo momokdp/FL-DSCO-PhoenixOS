@@ -34,9 +34,7 @@ export async function syncNow({ trigger = 'auto' } = {}) {
       result.missing.length ? 'partial' : 'ok',
       result.stationsSeen,
       result.rowsWritten,
-      result.missing.length
-        ? `Stations introuvables côté API : ${result.missing.join(', ')}`
-        : 'Relevé complet.',
+      messageReleve(result),
       logId
     );
 
@@ -79,9 +77,74 @@ async function fetchPobs() {
   }
 }
 
+/**
+ * Message du journal de relevé.
+ *
+ * Distinguer « introuvable » de « trouvée mais vide » est essentiel : le
+ * premier cas vient d'un nom API erroné, le second d'une base réellement
+ * sans stock ou d'une fiche que darkstat ne renseigne pas.
+ */
+function messageReleve({ missing, vides, stationsSeen, rowsWritten }) {
+  const parts = [];
+  if (missing.length) {
+    parts.push(`Introuvables côté API (vérifiez le nom exact) : ${missing.join(', ')}`);
+  }
+  if (vides.length) {
+    parts.push(`Trouvées mais sans aucune marchandise : ${vides.join(', ')}`);
+  }
+  if (!parts.length) {
+    parts.push(`Relevé complet : ${stationsSeen} station(s), ${rowsWritten} ligne(s).`);
+  }
+  return parts.join(' — ');
+}
+
+/** Clé de rapprochement tolérante : casse et espaces multiples ignorés. */
+function cle(valeur) {
+  return String(valeur || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/**
+ * Indexe les bases par nom ET par nickname.
+ *
+ * darkstat renvoie toutes les bases du jeu, dont beaucoup de fiches vides
+ * marquées « is_fallback_info ». Une simple Map laissait la dernière entrée
+ * écraser les précédentes : une fiche vide pouvait ainsi remplacer la vraie
+ * station. On ne remplace donc une entrée déjà indexée que si la nouvelle
+ * porte réellement des données.
+ */
+function indexerBases(pobs) {
+  const index = new Map();
+
+  const renseignee = (p) => !p.is_fallback_info && extraireMarchandises(p).length > 0;
+
+  const poser = (k, p) => {
+    if (!k) return;
+    const existante = index.get(k);
+    if (!existante || (renseignee(p) && !renseignee(existante))) index.set(k, p);
+  };
+
+  for (const p of pobs) {
+    poser(cle(p.name), p);
+    poser(cle(p.nickname), p);
+  }
+  return index;
+}
+
+/**
+ * Les marchandises arrivent tantôt dans « shop_items » (tableau), tantôt
+ * dans « shop_items_map » (objet indexé). L'un des deux peut être null.
+ */
+function extraireMarchandises(pob) {
+  if (Array.isArray(pob.shop_items)) return pob.shop_items;
+  if (pob.shop_items_map && typeof pob.shop_items_map === 'object') {
+    return Object.values(pob.shop_items_map);
+  }
+  return [];
+}
+
 function writeSnapshots(pobs, stamp = nowSql()) {
   const stations = db.prepare('SELECT id, api_name FROM stations WHERE active = 1').all();
-  const byApiName = new Map(pobs.map(p => [String(p.name || '').trim(), p]));
+  const index = indexerBases(pobs);
 
   const findItem = db.prepare('SELECT id FROM items WHERE name = ? COLLATE NOCASE');
   const insertItem = db.prepare('INSERT INTO items (name, category) VALUES (?, ?)');
@@ -106,16 +169,18 @@ function writeSnapshots(pobs, stamp = nowSql()) {
       synced_at = excluded.synced_at
   `);
 
-  const missing = [];
+  const missing = [];   // station déclarée, aucune base correspondante
+  const vides = [];     // base trouvée, mais sans aucune marchandise
   let stationsSeen = 0, rowsWritten = 0;
 
   const run = db.transaction(() => {
     for (const station of stations) {
-      const pob = byApiName.get(station.api_name);
+      const pob = index.get(cle(station.api_name));
       if (!pob) { missing.push(station.api_name); continue; }
       stationsSeen++;
 
-      const shopItems = Array.isArray(pob.shop_items) ? pob.shop_items : [];
+      const shopItems = extraireMarchandises(pob);
+      if (!shopItems.length) vides.push(station.api_name);
       let used = 0;
 
       for (const raw of shopItems) {
@@ -153,7 +218,7 @@ function writeSnapshots(pobs, stamp = nowSql()) {
   });
 
   run();
-  return { stationsSeen, rowsWritten, missing };
+  return { stationsSeen, rowsWritten, missing, vides };
 }
 
 export function startSyncWorker() {
