@@ -146,8 +146,13 @@ function writeSnapshots(pobs, stamp = nowSql()) {
   const stations = db.prepare('SELECT id, api_name FROM stations WHERE active = 1').all();
   const index = indexerBases(pobs);
 
-  const findItem = db.prepare('SELECT id FROM items WHERE name = ? COLLATE NOCASE');
-  const insertItem = db.prepare('INSERT INTO items (name, category) VALUES (?, ?)');
+  const findItem = db.prepare('SELECT id, commodity_id FROM items WHERE name = ? COLLATE NOCASE');
+  const insertItem = db.prepare(
+    'INSERT INTO items (name, commodity_id, category) VALUES (?, ?, ?)');
+  // Les marchandises créées avant que l'API ne fournisse leur identifiant
+  // restent orphelines : on le complète dès qu'il apparaît.
+  const completerItem = db.prepare(
+    'UPDATE items SET commodity_id = ? WHERE id = ? AND (commodity_id IS NULL OR commodity_id = \'\')');
   const upsertStock = db.prepare(`
     INSERT INTO stock_snapshots
       (station_id, item_id, quantity, min_stock, max_stock, price, is_selling, synced_at)
@@ -169,6 +174,11 @@ function writeSnapshots(pobs, stamp = nowSql()) {
       synced_at = excluded.synced_at
   `);
 
+  // Le système est fourni par l'API : inutile de le saisir à la main. On ne
+  // remplit que les champs laissés vides, pour ne pas écraser une correction.
+  const completerSysteme = db.prepare(
+    'UPDATE stations SET system = ? WHERE id = ? AND (system IS NULL OR system = \'\')');
+
   const missing = [];   // station déclarée, aucune base correspondante
   const vides = [];     // base trouvée, mais sans aucune marchandise
   let stationsSeen = 0, rowsWritten = 0;
@@ -179,6 +189,9 @@ function writeSnapshots(pobs, stamp = nowSql()) {
       if (!pob) { missing.push(station.api_name); continue; }
       stationsSeen++;
 
+      const systeme = String(pob.system_name || '').trim();
+      if (systeme) completerSysteme.run(systeme, station.id);
+
       const shopItems = extraireMarchandises(pob);
       if (!shopItems.length) vides.push(station.api_name);
       let used = 0;
@@ -187,8 +200,15 @@ function writeSnapshots(pobs, stamp = nowSql()) {
         const name = String(raw.name || '').trim();
         if (!name) continue;
 
+        const nickname = String(raw.nickname || '').trim() || null;
+        const categorie = String(raw.category || 'commodity').trim() || 'commodity';
+
         let item = findItem.get(name);
-        if (!item) item = { id: insertItem.run(name, 'commodity').lastInsertRowid };
+        if (!item) {
+          item = { id: insertItem.run(name, nickname, categorie).lastInsertRowid };
+        } else if (nickname && !item.commodity_id) {
+          completerItem.run(nickname, item.id);
+        }
 
         const qty = Number(raw.quantity) || 0;
         used += qty;
