@@ -11,6 +11,7 @@ import {
 
 const TABS = [
   { key: 'stations', label: 'Stations', role: 'officer' },
+  { key: 'thresholds', label: 'Seuils', role: 'officer' },
   { key: 'missions', label: 'Missions', role: 'officer' },
   { key: 'items', label: 'Marchandises', role: 'officer' },
   { key: 'routes', label: 'Routes', role: 'officer' },
@@ -146,6 +147,134 @@ async function stationsPane(ctx) {
     : empty('Aucune station',
       'Déclarez vos bases pour que la synchronisation commence à relever leurs soutes.',
       addButton('Déclarer une station', () => edit())),
+  );
+}
+
+/* ============================================================== seuils */
+
+/**
+ * Les seuils de l'API décrivent la configuration en jeu. Un plafond à
+ * 999 999 999 sert à laisser n'importe quel joueur vendre sans butoir, pas
+ * à exprimer notre besoin. On règle donc ici les valeurs qui pilotent
+ * réellement l'ouverture des missions, sans toucher à la station en jeu.
+ */
+async function thresholdsPane(ctx) {
+  const stations = await get('/stations');
+  if (!stations.length) {
+    return panel('Seuils', {}, empty('Aucune station',
+      'Déclarez d\'abord vos stations, puis lancez un relevé.'));
+  }
+
+  const state = ctx.seuilStation ||= String(stations[0].id);
+  const filtre = input({ type: 'search', placeholder: 'Filtrer une marchandise…' });
+  const host = h('div', loading());
+
+  const choix = select(stations.map((s) => ({ value: s.id, label: s.name })), {
+    value: state,
+    onChange: (e) => { ctx.seuilStation = e.target.value; charger(); },
+  });
+
+  let inventaire = [];
+
+  const charger = async () => {
+    host.replaceChildren(loading());
+    try {
+      const { inventory } = await get(`/admin/stations/${ctx.seuilStation}/thresholds`);
+      inventaire = inventory;
+      rendre();
+    } catch (e) { host.replaceChildren(empty('Lecture impossible', e.message)); }
+  };
+
+  const rendre = () => {
+    const q = filtre.value.trim().toLowerCase();
+    const lignes = inventaire.filter((r) => !q || r.name.toLowerCase().includes(q));
+
+    if (!lignes.length) {
+      host.replaceChildren(empty(
+        inventaire.length ? 'Aucun résultat' : 'Soute vide',
+        inventaire.length ? 'Essayez un autre terme.'
+          : 'Lancez un relevé pour que les marchandises apparaissent.'));
+      return;
+    }
+
+    host.replaceChildren(table(
+      [{ label: 'Marchandise' }, { label: 'En soute', num: true },
+        { label: 'Seuil bas retenu', num: true }, { label: 'Plafond retenu', num: true },
+        { label: 'Valeurs de l\'API' }, { label: '' }],
+      lignes,
+      (r) => h('tr', { class: r.has_custom ? 'is-custom' : null },
+        h('td', h('strong', r.name),
+          r.threshold_note ? h('em.hint', r.threshold_note) : null),
+        h('td', { class: 'num' }, num(r.effective_qty)),
+        h('td', { class: `num ${r.custom_min_stock != null ? 'is-ok' : ''}` }, num(r.min_stock)),
+        h('td', { class: `num ${r.custom_max_stock != null ? 'is-ok' : ''}` }, num(r.max_stock)),
+        h('td', h('em.hint', `${num(r.api_min_stock)} → ${num(r.api_max_stock)}`)),
+        rowActions(
+          editBtn(() => regler(r)),
+          r.has_custom ? deleteBtn(() => lever(r)) : null,
+        ),
+      ),
+    ));
+  };
+
+  const regler = async (r) => {
+    const min = input({ type: 'number', name: 'min_stock', min: '0', step: '1',
+      class: 'input--num', value: r.custom_min_stock ?? '' });
+    const max = input({ type: 'number', name: 'max_stock', min: '0', step: '1',
+      class: 'input--num', value: r.custom_max_stock ?? '' });
+    const note = input({ name: 'note', value: r.threshold_note || '',
+      placeholder: 'Pourquoi cette valeur ? (facultatif)' });
+
+    const valeurs = await modal({
+      title: r.name,
+      build: () => h('div.form',
+        h('p', { style: 'margin-top:0' },
+          'Valeurs de l\'API : seuil bas ', h('strong', num(r.api_min_stock)),
+          ', plafond ', h('strong', num(r.api_max_stock)), '.'),
+        field('Seuil bas', min,
+          'En dessous, une mission d\'approvisionnement s\'ouvre automatiquement. ' +
+          'Laisser vide pour garder la valeur de l\'API.'),
+        field('Plafond', max,
+          'Sert de repère haut sur la jauge. Laisser vide pour garder la valeur de l\'API.'),
+        field('Note', note),
+      ),
+      actions: [
+        { label: 'Annuler', value: null },
+        { label: 'Enregistrer', variant: 'primary', onClick: (close) => close({
+          min_stock: min.value === '' ? null : Number(min.value),
+          max_stock: max.value === '' ? null : Number(max.value),
+          note: note.value.trim() || null,
+        }) },
+      ],
+    });
+
+    if (!valeurs) return;
+    try {
+      await put(`/admin/stations/${ctx.seuilStation}/thresholds/${r.item_id}`, valeurs);
+      toast('Seuils enregistrés.');
+      charger();
+    } catch (e) { notifyError(e); }
+  };
+
+  const lever = async (r) => {
+    if (!await confirmDialog('Revenir aux valeurs de l\'API',
+      `${r.name} reprendra le seuil bas ${num(r.api_min_stock)} et le plafond ${num(r.api_max_stock)}.`,
+      'Rétablir')) return;
+    try {
+      await put(`/admin/stations/${ctx.seuilStation}/thresholds/${r.item_id}`,
+        { min_stock: null, max_stock: null, note: null });
+      toast('Valeurs de l\'API rétablies.');
+      charger();
+    } catch (e) { notifyError(e); }
+  };
+
+  let minuteur;
+  filtre.addEventListener('input', () => { clearTimeout(minuteur); minuteur = setTimeout(rendre, 200); });
+  charger();
+
+  return panel('Seuils par station', { flush: true, tools: choix },
+    h('div', { style: 'padding:.75rem 1rem 0' }, filtre),
+    host,
   );
 }
 
@@ -520,6 +649,7 @@ async function syncPane(ctx) {
 
 const PANES = {
   stations: stationsPane,
+  thresholds: thresholdsPane,
   missions: missionsPane,
   items: itemsPane,
   routes: routesPane,
