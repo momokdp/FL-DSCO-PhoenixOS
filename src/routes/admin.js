@@ -5,6 +5,7 @@ import { syncNow, isSyncRunning } from '../sync/darkstat.js';
 import { broadcast } from '../services/events.js';
 import { importRecipesFromConfig } from '../services/recipeImport.js';
 import { config } from '../config.js';
+import { setThreshold, listThresholds, stationInventory } from '../services/stock.js';
 
 export const adminRouter = express.Router();
 
@@ -378,4 +379,51 @@ adminRouter.get('/audit', admin, (req, res) => {
     FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
     ORDER BY a.id DESC LIMIT 200
   `).all());
+});
+
+// ------------------------------------------------------- seuils réglés
+//
+// Les seuils de l'API décrivent la configuration en jeu, qui sert souvent
+// un autre but que le nôtre : un plafond démesuré laisse les joueurs
+// extérieurs vendre sans limite. Ces réglages disent notre besoin réel.
+
+adminRouter.get('/thresholds', officer, (req, res) => {
+  res.json(listThresholds());
+});
+
+/** Inventaire d'une station, seuils API et réglés côte à côte. */
+adminRouter.get('/stations/:id/thresholds', officer, (req, res) => {
+  const station = db.prepare('SELECT * FROM stations WHERE id = ?').get(req.params.id);
+  if (!station) return res.status(404).json({ error: 'Station inconnue.' });
+  res.json({ station, inventory: stationInventory(station.id) });
+});
+
+adminRouter.put('/stations/:id/thresholds/:itemId', officer, (req, res) => {
+  const station = db.prepare('SELECT id, name FROM stations WHERE id = ?').get(req.params.id);
+  if (!station) return res.status(404).json({ error: 'Station inconnue.' });
+
+  const item = db.prepare('SELECT id, name FROM items WHERE id = ?').get(req.params.itemId);
+  if (!item) return res.status(404).json({ error: 'Marchandise inconnue.' });
+
+  const result = setThreshold({
+    stationId: station.id,
+    itemId: item.id,
+    minStock: req.body.min_stock,
+    maxStock: req.body.max_stock,
+    note: req.body.note,
+    userId: req.user.id,
+  });
+  if (!result.ok) return res.status(400).json({ error: result.error });
+
+  audit(req.user.id, result.cleared ? 'threshold.clear' : 'threshold.set', 'item', item.id, {
+    station: station.name, item: item.name,
+    min: req.body.min_stock ?? null, max: req.body.max_stock ?? null,
+  });
+
+  // Les seuils pilotent l'ouverture automatique des missions : le tableau
+  // des pilotes doit refléter le changement sans attendre le prochain relevé.
+  broadcast('stock:updated', { station: station.id });
+  broadcast('missions:changed', {});
+
+  res.json({ ok: true, cleared: !!result.cleared });
 });

@@ -107,7 +107,33 @@ Le port 3000 n'a pas besoin d'être ouvert : l'application n'écoute que sur
 ne le passez à `0.0.0.0` que si vous servez sans proxy inverse, ce qui vous
 priverait alors du HTTPS.
 
-### Exploitation
+#### Affiner les seuils
+
+Les seuils renvoyés par l'API décrivent la configuration de la base *en jeu*,
+qui sert souvent un autre but que le vôtre. Un plafond à 999 999 999 existe
+pour laisser n'importe quel joueur venir vendre sans butoir : il ne dit rien
+de la quantité dont votre production a réellement besoin.
+
+**Gestion → Seuils** permet de fixer vos propres valeurs, station par station
+et marchandise par marchandise. Elles remplacent celles de l'API pour tout ce
+que fait la console : jauges, niveaux d'alerte et surtout ouverture
+automatique des missions.
+
+Trois propriétés à connaître :
+
+- **La station en jeu n'est pas touchée.** Les joueurs extérieurs continuent
+  de vendre selon la configuration d'origine.
+- **Les relevés n'écrasent jamais vos réglages.** Ils vivent dans une table
+  distincte de celle que la synchronisation réécrit.
+- **Chaque seuil est indépendant.** Laisser un champ vide conserve la valeur
+  de l'API pour ce seuil-là seulement.
+
+Réservé aux officiers et aux administrateurs. Le bouton « Supprimer » d'une
+ligne réglée rétablit les valeurs de l'API.
+
+---
+
+## Exploitation
 
 ```bash
 sudo systemctl restart kadesh
