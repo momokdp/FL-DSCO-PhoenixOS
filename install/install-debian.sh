@@ -111,8 +111,22 @@ cd "$APP_DIR"
 # retomber silencieusement sur root.
 mkdir -p /var/tmp/npm-kadesh
 chown "$APP_USER:$APP_USER" /var/tmp/npm-kadesh
-sudo -u "$APP_USER" -H npm_config_cache=/var/tmp/npm-kadesh \
-  npm install --omit=dev --no-audit --no-fund 2>&1 | tail -3
+# L'échec de npm ne doit jamais empêcher le redémarrage qui suit : sinon le
+# code neuf est déjà copié mais le service continue de tourner sur l'ancien,
+# en silence. On récupère le code de sortie au lieu de laisser « set -e »
+# interrompre le script ici.
+NPM_OK=1
+if ! sudo -u "$APP_USER" -H npm_config_cache=/var/tmp/npm-kadesh \
+     npm install --omit=dev --no-audit --no-fund 2>&1 | tail -3; then
+  NPM_OK=0
+fi
+if [ "$NPM_OK" = "0" ]; then
+  rouge "L'installation des dependances a echoue."
+  echo "  Le redemarrage est tente malgre tout : si les dependances etaient"
+  echo "  deja presentes, le service fonctionnera. Sinon, consultez :"
+  echo "      sudo journalctl -u $SERVICE -n 40 --no-pager"
+  echo
+fi
 
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 chmod 600 "$APP_DIR/.env"
@@ -141,6 +155,11 @@ fi
 
 systemctl restart "$SERVICE"
 sleep 3
+
+# Confirme que le processus a bien redemarre : comparer la date de demarrage
+# evite le piege du « fichiers a jour, service sur l'ancienne version ».
+DEMARRE_LE="$(systemctl show -p ActiveEnterTimestamp --value "$SERVICE" 2>/dev/null || echo '')"
+[ -n "$DEMARRE_LE" ] && bleu "Service (re)demarre le : $DEMARRE_LE"
 
 echo
 if systemctl is-active --quiet "$SERVICE"; then
