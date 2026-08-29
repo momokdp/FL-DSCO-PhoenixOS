@@ -17,6 +17,11 @@ function required(key) {
 export const config = {
   env: process.env.NODE_ENV || 'production',
   port: Number(process.env.PORT || 3000),
+
+  // Interface d'écoute. Par défaut la boucle locale : l'application n'est
+  // joignable que par le proxy inverse, jamais directement depuis Internet.
+  // Mettre 0.0.0.0 uniquement si vous servez sans proxy devant.
+  host: process.env.HOST || '127.0.0.1',
   baseUrl: (process.env.BASE_URL || 'http://localhost:3000').replace(/\/$/, ''),
 
   dbFile: process.env.DB_FILE || path.join(ROOT, 'data', 'kadesh.sqlite'),

@@ -81,13 +81,31 @@ Le fichier fourni contient déjà le bloc `/api/events` nécessaire au temps ré
 Sans lui, nginx met les événements en tampon et l'interface ne se rafraîchit
 jamais toute seule.
 
-Pare-feu :
+### Pare-feu
+
+`ufw` n'est pas installé sur les images Debian minimales :
 
 ```bash
-ufw allow OpenSSH && ufw allow 'Nginx Full' && ufw enable
+sudo apt install -y ufw
 ```
 
-Le port 3000 n'a pas besoin d'être ouvert : nginx l'atteint en local.
+> **Autorisez SSH avant d'activer le pare-feu.** `ufw enable` bloque tout le
+> trafic entrant, y compris votre session en cours. Sans la règle OpenSSH,
+> vous perdez l'accès à la machine et devez passer par la console KVM d'OVH.
+
+Une commande à la fois, en vérifiant entre les deux :
+
+```bash
+sudo ufw allow OpenSSH
+sudo ufw status
+sudo ufw allow 'Nginx Full'    # ce profil n'existe qu'une fois nginx installé
+sudo ufw enable
+```
+
+Le port 3000 n'a pas besoin d'être ouvert : l'application n'écoute que sur
+`127.0.0.1`, nginx l'atteint en local. C'est le réglage `HOST` du `.env` ;
+ne le passez à `0.0.0.0` que si vous servez sans proxy inverse, ce qui vous
+priverait alors du HTTPS.
 
 ### Exploitation
 

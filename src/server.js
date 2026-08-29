@@ -100,10 +100,10 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: "Le serveur n'a pas pu traiter la demande." });
 });
 
-const server = app.listen(config.port, () => {
+const server = app.listen(config.port, config.host, () => {
   console.log(`\n  Console Kadesh — ${config.baseUrl}`);
   console.log(`  Base : ${config.dbFile}`);
-  console.log(`  Écoute sur le port ${config.port}\n`);
+  console.log(`  Écoute sur ${config.host}:${config.port}\n`);
   startSyncWorker();
   setInterval(() => { try { refreshAutoMissions(); } catch (e) { console.error('[missions]', e.message); } }, 120_000);
 });

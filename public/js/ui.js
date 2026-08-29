@@ -6,27 +6,56 @@
 /* ------------------------------------------------------------- réseau */
 
 export async function api(path, options = {}) {
-  const res = await fetch(`/api${path}`, {
-    credentials: 'same-origin',
-    ...options,
-    headers: {
-      Accept: 'application/json',
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(options.headers || {}),
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
+  // Une requête sans réponse ne rejette jamais d'elle-même : sans ce délai,
+  // un proxy mal configuré laissait l'interface figée sur l'écran d'amorçage,
+  // sans le moindre message.
+  const stop = new AbortController();
+  const minuteur = setTimeout(() => stop.abort(), options.timeoutMs ?? 20000);
+
+  let res;
+  try {
+    res = await fetch(`/api${path}`, {
+      credentials: 'same-origin',
+      signal: stop.signal,
+      ...options,
+      headers: {
+        Accept: 'application/json',
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(options.headers || {}),
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error(`Aucune réponse du serveur sur /api${path} (délai dépassé).`);
+    }
+    throw new Error(`Serveur injoignable sur /api${path} : ${err.message}`);
+  } finally {
+    clearTimeout(minuteur);
+  }
 
   if (res.status === 401) {
     location.href = '/auth/discord';
     throw new Error('Session expirée.');
   }
 
+  const brut = await res.text();
   let payload = null;
-  try { payload = await res.json(); } catch { /* réponse sans corps */ }
+  try { payload = brut ? JSON.parse(brut) : null; } catch { /* pas du JSON */ }
 
   if (!res.ok) {
     throw new Error(payload?.error || `Le serveur a répondu ${res.status}.`);
+  }
+
+  // Une réponse 200 qui n'est pas du JSON signale presque toujours un proxy
+  // mal configuré qui renvoie une page HTML à la place de l'API. Sans ce
+  // contrôle, l'appelant recevait null et plantait plus loin, sans indice.
+  if (payload === null && brut.trim() !== '') {
+    throw new Error(
+      `Réponse inattendue sur /api${path} : le serveur a renvoyé du contenu ` +
+      `non-JSON (${(res.headers.get('content-type') || 'type inconnu').split(';')[0]}). ` +
+      `Vérifiez la configuration du proxy inverse.`
+    );
   }
   return payload;
 }

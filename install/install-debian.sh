@@ -28,12 +28,30 @@ bleu "Source : $SOURCE_DIR"
 bleu "Cible  : $APP_DIR"
 echo
 
+# Un transfert par SFTP ou un « cp -r dossier/* » perd silencieusement les
+# fichiers commençant par un point. On le détecte tout de suite plutôt que
+# d'échouer plus loin sur un message obscur.
+for requis in package.json src/server.js .env.example; do
+  if [ ! -e "$SOURCE_DIR/$requis" ]; then
+    rouge "Fichier manquant dans la source : $requis"
+    echo
+    echo "  Le dossier $SOURCE_DIR ne contient pas un projet complet."
+    echo "  Si vous avez copié les fichiers à la main, les fichiers cachés"
+    echo "  (.env.example, .gitignore) ont probablement été omis."
+    echo
+    echo "  Retransférez l'archive entière puis :"
+    echo "      tar -xzf kadesh-console.tar.gz"
+    echo "      cd kadesh && sudo bash install/install-debian.sh"
+    exit 1
+  fi
+done
+
 # ---------------------------------------------------------------- Node.js
 if ! command -v node >/dev/null 2>&1 || \
    [ "$(node -v | sed 's/v\([0-9]*\).*/\1/')" -lt "$NODE_MAJOR" ]; then
   jaune "Installation de Node.js ${NODE_MAJOR}.x…"
   apt-get update -qq
-  apt-get install -y -qq ca-certificates curl gnupg
+  apt-get install -y -qq ca-certificates curl gnupg rsync
   curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash -
   apt-get install -y -qq nodejs
 fi
@@ -41,7 +59,7 @@ vert "Node.js $(node -v)"
 
 # better-sqlite3 est un module natif. Des binaires précompilés existent pour
 # les versions courantes de Node ; à défaut, il se compile, d'où ces paquets.
-apt-get install -y -qq python3 g++ make >/dev/null
+apt-get install -y -qq python3 g++ make rsync >/dev/null
 
 # ------------------------------------------------------ utilisateur dédié
 if ! id -u "$APP_USER" >/dev/null 2>&1; then
@@ -63,7 +81,22 @@ fi
 mkdir -p "$APP_DIR/data"
 
 if [ ! -f "$APP_DIR/.env" ]; then
-  cp "$APP_DIR/.env.example" "$APP_DIR/.env"
+  if [ -f "$APP_DIR/.env.example" ]; then
+    cp "$APP_DIR/.env.example" "$APP_DIR/.env"
+  else
+    # Filet de sécurité : un .env minimal vaut mieux qu'un arrêt sur erreur.
+    cat > "$APP_DIR/.env" <<'MODELE'
+PORT=3000
+BASE_URL=https://logistique.exemple.fr
+SESSION_SECRET=
+DISCORD_CLIENT_ID=
+DISCORD_CLIENT_SECRET=
+DISCORD_GUILD_ID=
+BOOTSTRAP_ADMIN_IDS=
+DARKSTAT_URL=https://darkstat.dd84ai.com
+SYNC_INTERVAL_MINUTES=10
+MODELE
+  fi
   chmod 600 "$APP_DIR/.env"
   SECRET="$(node -e "console.log(require('crypto').randomBytes(48).toString('hex'))")"
   sed -i "s|^SESSION_SECRET=.*|SESSION_SECRET=${SECRET}|" "$APP_DIR/.env"

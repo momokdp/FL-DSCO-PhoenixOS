@@ -33,11 +33,11 @@ async function boot() {
   let me;
   try {
     me = await get('/me');
-  } catch {
-    return showGate('La console est injoignable. Vérifiez que le service tourne.');
+  } catch (err) {
+    return showGate(`La console est injoignable. ${err.message}`);
   }
 
-  if (!me.user) return showGate();
+  if (!me || !me.user) return showGate();
 
   ctx.user = me.user;
   ctx.sync = me.sync;
@@ -182,4 +182,17 @@ document.addEventListener('keydown', (e) => {
   if (target) location.hash = `#/${target}`;
 });
 
-boot();
+/**
+ * Toute panne d'amorçage doit s'afficher. Un écran figé sans message est
+ * indiagnosticable pour l'utilisateur comme pour l'administrateur.
+ */
+boot().catch((err) => {
+  console.error('[amorçage]', err);
+  showGate(`Erreur au démarrage : ${err.message}`);
+});
+
+window.addEventListener('error', (e) => {
+  if (!document.getElementById('boot').hidden) {
+    showGate(`Erreur de chargement : ${e.message}`);
+  }
+});
