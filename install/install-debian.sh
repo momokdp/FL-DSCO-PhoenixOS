@@ -106,8 +106,13 @@ fi
 
 jaune "Installation des dépendances…"
 cd "$APP_DIR"
-sudo -u "$APP_USER" -H npm install --omit=dev --no-audit --no-fund 2>&1 | tail -3 \
-  || npm install --omit=dev --no-audit --no-fund 2>&1 | tail -3
+# npm écrit son cache dans le HOME de l'utilisateur, que le service n'a pas
+# le droit d'utiliser. On le redirige plutôt que de laisser l'installation
+# retomber silencieusement sur root.
+mkdir -p /var/tmp/npm-kadesh
+chown "$APP_USER:$APP_USER" /var/tmp/npm-kadesh
+sudo -u "$APP_USER" -H npm_config_cache=/var/tmp/npm-kadesh \
+  npm install --omit=dev --no-audit --no-fund 2>&1 | tail -3
 
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 chmod 600 "$APP_DIR/.env"

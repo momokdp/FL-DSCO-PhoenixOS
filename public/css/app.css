@@ -27,6 +27,17 @@
 
 * { box-sizing: border-box; }
 
+/**
+ * L'attribut « hidden » doit toujours l'emporter.
+ *
+ * Le navigateur masque via [hidden] { display: none }, mais toute règle
+ * d'auteur posant un display (ici .boot, .shell, .modal, .rail a) gagne
+ * contre la feuille par défaut. Sans cette ligne, masquer un élément par
+ * hidden n'avait aucun effet : l'écran d'amorçage restait affiché
+ * par-dessus l'application, qui fonctionnait pourtant normalement.
+ */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   background: var(--void);

@@ -9,6 +9,12 @@ Documentation=file:/opt/kadesh/README.md
 After=network-online.target
 Wants=network-online.target
 
+# Au-delà de 5 redémarrages en 60 s, systemd laisse le service arrêté plutôt
+# que de boucler. Ces deux clés relèvent de [Unit] : placées dans [Service],
+# systemd les ignore en émettant « Unknown key ».
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
 [Service]
 Type=simple
 User=kadesh
@@ -21,8 +27,6 @@ Environment=NODE_ENV=production
 # au-delà de 5 redémarrages en 60 s, systemd laisse le service arrêté.
 Restart=always
 RestartSec=5
-StartLimitBurst=5
-StartLimitIntervalSec=60
 
 # Arrêt propre : le serveur ferme ses connexions puis la base sur SIGTERM.
 KillSignal=SIGTERM
