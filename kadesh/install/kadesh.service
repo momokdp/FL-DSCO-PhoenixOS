@@ -1,0 +1,54 @@
+# =====================================================================
+#  Console logistique Kadesh — unité systemd
+#  Installée par install/install-debian.sh dans /etc/systemd/system/
+# =====================================================================
+
+[Unit]
+Description=Console logistique Kadesh
+Documentation=file:/opt/kadesh/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kadesh
+Group=kadesh
+WorkingDirectory=/opt/kadesh
+ExecStart=/usr/bin/node src/server.js
+Environment=NODE_ENV=production
+
+# Redémarrage automatique, avec une fenêtre qui évite les boucles d'échec :
+# au-delà de 5 redémarrages en 60 s, systemd laisse le service arrêté.
+Restart=always
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# Arrêt propre : le serveur ferme ses connexions puis la base sur SIGTERM.
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+# Journalisation via journalctl, pas de fichiers à faire tourner.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kadesh
+
+# ---------------------------------------------------------------------
+# Cloisonnement. Le service n'a besoin d'écrire que dans son dossier data/.
+# ---------------------------------------------------------------------
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadWritePaths=/opt/kadesh/data
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+
+[Install]
+WantedBy=multi-user.target

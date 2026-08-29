@@ -1,0 +1,27 @@
+{
+  "name": "kadesh-console",
+  "version": "1.0.0",
+  "description": "Console logistique Kadesh — gestion des stocks, missions et recettes pour Discovery GC",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "migrate": "node src/db/run-migrations.js",
+    "backup": "node src/db/backup.js",
+    "db:init": "node src/db/seed.js",
+    "sync:now": "node src/sync/run-once.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.5.0",
+    "connect-sqlite3": "^0.9.15",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "express-rate-limit": "^7.4.1",
+    "express-session": "^1.18.1",
+    "helmet": "^8.0.0"
+  }
+}
