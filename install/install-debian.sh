@@ -115,6 +115,11 @@ chown "$APP_USER:$APP_USER" /var/tmp/npm-kadesh
 # code neuf est déjà copié mais le service continue de tourner sur l'ancien,
 # en silence. On récupère le code de sortie au lieu de laisser « set -e »
 # interrompre le script ici.
+# L'appropriation doit précéder npm : node_modules laissé à root par une
+# installation antérieure empêche l'utilisateur du service d'y écrire, et
+# npm échoue sur « permissions of the file and its containing directories ».
+chown -R "$APP_USER:$APP_USER" "$APP_DIR"
+
 NPM_OK=1
 if ! sudo -u "$APP_USER" -H npm_config_cache=/var/tmp/npm-kadesh \
      npm install --omit=dev --no-audit --no-fund 2>&1 | tail -3; then

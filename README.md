@@ -107,7 +107,28 @@ Le port 3000 n'a pas besoin d'être ouvert : l'application n'écoute que sur
 ne le passez à `0.0.0.0` que si vous servez sans proxy inverse, ce qui vous
 priverait alors du HTTPS.
 
-#### Affiner les seuils
+#### Comment les missions s'ouvrent
+
+Les missions visent un **objectif**, pas un seuil d'alerte.
+
+| Sens | Objectif visé | Mission ouverte tant que | Quantité demandée |
+|---|---|---|---|
+| **Import** (consommé) | Plafond | le stock est sous le plafond | plafond − stock |
+| **Export** (produit) | Seuil bas | le stock dépasse le seuil bas | stock − seuil bas |
+
+Le seuil opposé sert à marquer l'**urgence** : une marchandise importée qui
+passe sous son seuil bas, ou une marchandise produite qui déborde son
+plafond, passe en priorité critique.
+
+Autrement dit, on ne comble pas jusqu'au minimum vital : on remplit jusqu'en
+haut, et on vide jusqu'en bas.
+
+> **Garde-fou.** Un plafond supérieur à 5 000 000 est ignoré : en jeu, une
+> valeur comme 999 999 999 sert à laisser n'importe qui vendre sans butoir et
+> n'exprime aucun besoin réel. La marchandise reste sans mission tant qu'un
+> officier n'a pas fixé un plafond vraisemblable dans **Gestion → Seuils**.
+
+### Affiner les seuils
 
 Les seuils renvoyés par l'API décrivent la configuration de la base *en jeu*,
 qui sert souvent un autre but que le vôtre. Un plafond à 999 999 999 existe

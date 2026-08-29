@@ -6,26 +6,51 @@ import { broadcast } from './events.js';
  * Une mission auto disparaît d'elle-même quand le stock repasse au-dessus
  * du seuil ; les missions créées à la main ne sont jamais touchées.
  */
+/**
+ * Plafond de vraisemblance.
+ *
+ * En jeu, un plafond à 999 999 999 sert à laisser n'importe qui vendre sans
+ * butoir. Le prendre pour objectif ouvrirait une mission d'un milliard
+ * d'unités. Au-delà de cette borne, on considère que le plafond n'exprime
+ * aucun besoin réel et on attend qu'un officier règle la valeur dans
+ * « Gestion → Seuils ».
+ */
+const PLAFOND_ABSURDE = 5_000_000;
+
 export const refreshAutoMissions = db.transaction(() => {
-  // Deux besoins symétriques :
-  //  - une marchandise consommée passe sous son seuil bas -> l'apporter
-  //  - une marchandise produite dépasse son plafond -> venir l'enlever
-  // Le sens est réglé par marchandise et par station dans « Seuils ».
+  // Objectif visé, et non seuil d'alerte.
+  //
+  //  - marchandise consommée : on veut la soute PLEINE, donc on comble
+  //    l'écart jusqu'au plafond. Attendre le seuil bas reviendrait à ne
+  //    remplir la station que lorsqu'elle est déjà presque vide.
+  //  - marchandise produite : on veut la soute VIDÉE jusqu'au seuil bas,
+  //    donc on fait enlever tout ce qui dépasse ce plancher.
+  //
+  // Les seuils opposés gardent un rôle : ils marquent l'urgence. Passer
+  // sous le seuil bas (ou au-dessus du plafond) rend la mission critique.
   const besoins = db.prepare(`
     SELECT v.station_id, v.item_id, 'import' AS direction,
-           v.min_stock - v.effective_qty AS qty
+           v.max_stock - v.effective_qty AS qty,
+           CASE WHEN v.min_stock > 0 AND v.effective_qty < v.min_stock
+                THEN 1 ELSE 0 END AS urgent
     FROM v_effective_stock v
     JOIN stations st ON st.id = v.station_id AND st.active = 1
-    WHERE v.is_export = 0 AND v.min_stock > 0 AND v.effective_qty < v.min_stock
+    WHERE v.is_export = 0
+      AND v.max_stock > 0
+      AND v.max_stock <= @plafond_absurde
+      AND v.effective_qty < v.max_stock
 
     UNION ALL
 
     SELECT v.station_id, v.item_id, 'export' AS direction,
-           v.effective_qty - v.max_stock AS qty
+           v.effective_qty - v.min_stock AS qty,
+           CASE WHEN v.max_stock > 0 AND v.effective_qty > v.max_stock
+                THEN 1 ELSE 0 END AS urgent
     FROM v_effective_stock v
     JOIN stations st ON st.id = v.station_id AND st.active = 1
-    WHERE v.is_export = 1 AND v.max_stock > 0 AND v.effective_qty > v.max_stock
-  `).all();
+    WHERE v.is_export = 1
+      AND v.effective_qty > v.min_stock
+  `).all({ plafond_absurde: PLAFOND_ABSURDE });
 
   const wanted = new Set(besoins.map(d => `${d.station_id}:${d.item_id}:${d.direction}`));
 
@@ -64,7 +89,10 @@ export const refreshAutoMissions = db.transaction(() => {
       item_id: d.item_id,
       direction: d.direction,
       target_qty: Math.max(1, Math.round(d.qty)),
-      priority: d.qty >= 500 ? 'critical' : d.qty >= 150 ? 'high' : 'normal',
+      // L'urgence tient au franchissement du seuil opposé, pas au volume :
+      // un gros réapprovisionnement de confort ne doit pas passer devant une
+      // station réellement à sec.
+      priority: d.urgent ? 'critical' : d.qty >= 500 ? 'high' : 'normal',
     });
     created++;
   }
@@ -187,10 +215,16 @@ export const deliverClaim = db.transaction((claimId, userId, quantity, note = nu
   `).get(claim.mission_id).n;
 
   const stock = db.prepare(`
-    SELECT effective_qty, min_stock FROM v_effective_stock WHERE station_id = ? AND item_id = ?
+    SELECT effective_qty, min_stock, max_stock FROM v_effective_stock
+    WHERE station_id = ? AND item_id = ?
   `).get(claim.station_id, claim.item_id);
 
-  const covered = stock && stock.min_stock > 0 ? stock.effective_qty >= stock.min_stock : true;
+  // Le besoin est couvert quand l'objectif est atteint, pas le seuil d'alerte :
+  // la soute pleine à l'import, vidée jusqu'au plancher à l'export.
+  const covered = !stock ? true
+    : claim.direction === 'export'
+      ? stock.effective_qty <= stock.min_stock
+      : stock.max_stock > 0 ? stock.effective_qty >= stock.max_stock : true;
   if (remaining === 0 && covered) {
     db.prepare(`UPDATE missions SET status='fulfilled', closed_at=datetime('now') WHERE id = ?`)
       .run(claim.mission_id);

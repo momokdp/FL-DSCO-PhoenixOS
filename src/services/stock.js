@@ -26,10 +26,15 @@ export function stationInventory(stationId) {
       v.api_min_stock, v.api_max_stock,
       v.custom_min_stock, v.custom_max_stock, v.threshold_note, v.has_custom, v.is_export,
       CASE
+        -- Marchandise produite : l'objectif est la soute vidée jusqu'au
+        -- plancher. Un stock qui déborde le plafond devient alarmant.
         WHEN v.is_export = 1 AND v.max_stock > 0
              AND v.effective_qty > v.max_stock                       THEN 'low'
+        WHEN v.is_export = 1 AND v.effective_qty <= v.min_stock      THEN 'full'
         WHEN v.is_export = 1                                         THEN 'ok'
-        WHEN v.min_stock > 0 AND v.effective_qty <= 0                THEN 'empty'
+
+        -- Marchandise consommée : l'objectif est la soute pleine.
+        WHEN v.effective_qty <= 0                                    THEN 'empty'
         WHEN v.min_stock > 0 AND v.effective_qty < v.min_stock       THEN 'low'
         WHEN v.max_stock > 0 AND v.effective_qty >= v.max_stock      THEN 'full'
         ELSE 'ok'
