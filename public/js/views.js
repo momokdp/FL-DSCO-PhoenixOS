@@ -4,7 +4,7 @@
 
 import {
   h, get, post, num, signed, ago, dateShort, gauge, toast, notifyError,
-  modal, confirmDialog, field, input, select, loading, empty, panel, clear,
+  modal, confirmDialog, field, input, select, loading, empty, panel, clear, dec,
 } from './ui.js';
 import { t, t2 } from './i18n.js';
 
@@ -114,6 +114,9 @@ function missionCard(m, ctx) {
 
     h('header.mission__bar',
       h('span.mission__way', t(`dir.${m.direction}Short`)),
+      // La prime décide souvent du choix du pilote : elle doit se voir avant
+      // même qu'il lise le reste de la carte.
+      prime !== 1 ? h('span.mission__bonus', t('mission.riskBonus', { v: dec(prime) })) : null,
       h('span.spacer'),
       m.auto ? h('span.tag.tag--auto', t('mission.auto')) : null,
       h('span.mission__prio', t(`priority.${m.priority}`)),
@@ -142,14 +145,13 @@ function missionCard(m, ctx) {
     h('div.mission__figures',
       figure(t('mission.inHold'), num(m.current_qty)),
       figure(t('mission.target'), num(cible)),
-      figure(t('mission.volume'), `\u00d7${volume}`, null, t('mission.perUnit')),
+      figure(t('mission.volume'), `\u00d7${dec(volume)}`, null, t('mission.perUnit')),
       figure(t('mission.pledged'), num(m.pledged_qty), m.pledged_qty >= m.target_qty ? 'ok' : null),
     ),
 
     h('div.mission__reward',
       h('span.mission__rewardMain', t('mission.pointsFor', { v: num(m.target_qty * parUnite) })),
-      h('span.mission__rewardRate', t('mission.rate', { v: parUnite })),
-      prime !== 1 ? h('span.tag.tag--bonus', t('mission.riskBonus', { v: +prime.toFixed(2) })) : null,
+      h('span.mission__rewardRate', t('mission.rate', { v: dec(parUnite) })),
     ),
 
     m.claimants.length

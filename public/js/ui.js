@@ -115,6 +115,16 @@ export function clear(el) {
 const NF = new Intl.NumberFormat('fr-FR');
 export const num = (v) => NF.format(Math.round(Number(v) || 0));
 
+/**
+ * Nombre décimal lisible : au plus quatre décimales, sans zéros inutiles.
+ * Évite les « ×0.20000000298023224 » venus des flottants 32 bits de l'API.
+ */
+export function dec(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '—';
+  return String(Math.round(n * 1e4) / 1e4);
+}
+
 export function signed(v) {
   const n = Math.round(Number(v) || 0);
   return n > 0 ? `+${num(n)}` : num(n);

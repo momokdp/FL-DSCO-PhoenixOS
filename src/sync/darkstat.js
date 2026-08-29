@@ -217,8 +217,13 @@ function writeSnapshots(pobs, stamp = nowSql()) {
         const categorie = String(raw.category || 'commodity').trim() || 'commodity';
 
         // darkstat expose le volume unitaire ; à défaut, une unité vaut 1.
+        // darkstat sert des flottants 32 bits : 0,2 arrive en
+        // 0,20000000298023224. On arrondit au millionième, bien au-delà de
+        // la précision utile pour un volume de cargaison.
         const vol = Number(raw.volume ?? raw.original_volume);
-        const volume = Number.isFinite(vol) && vol > 0 ? vol : 1;
+        const volume = Number.isFinite(vol) && vol > 0
+          ? Math.round(vol * 1e6) / 1e6
+          : 1;
 
         let item = findItem.get(name);
         if (!item) {

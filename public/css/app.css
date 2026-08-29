@@ -835,3 +835,15 @@ a:hover { text-decoration: underline; }
   .pot { grid-template-columns: 1fr; }
   .pot__value { font-size: 1.7rem; }
 }
+
+/* Prime de risque, dans le bandeau : c'est souvent elle qui décide le
+   pilote, elle doit se lire avant le reste de la carte. */
+.mission__bonus {
+  padding: .12rem .45rem;
+  border: 1px solid var(--amber);
+  border-radius: 2px;
+  background: rgba(232,163,61,.15);
+  color: var(--amber);
+  font-family: var(--display); font-size: .68rem;
+  letter-spacing: .1em; font-weight: 700;
+}
