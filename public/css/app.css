@@ -571,3 +571,6 @@ a:hover { text-decoration: underline; }
   .comp-row { grid-template-columns: 1fr 72px auto; }
   .table td.row-actions { text-align: left; }
 }
+
+/* Ligne dont les seuils ont été réglés à la main. */
+.table tr.is-custom td:first-child { border-left: 2px solid var(--amber); }
