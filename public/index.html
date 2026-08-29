@@ -13,7 +13,7 @@
 
 <div id="boot" class="boot">
   <div class="boot__mark">KDS</div>
-  <p class="boot__line">Ouverture de la console…</p>
+  <p class="boot__line">Opening console…</p>
 </div>
 
 <div id="shell" class="shell" hidden>
@@ -29,7 +29,7 @@
 
     <div class="sync" id="syncPill" title="Dernier relevé de l'API darkstat">
       <span class="sync__dot"></span>
-      <span class="sync__label">Relevé</span>
+      <span class="sync__label">Last reading</span>
       <span class="sync__value" id="syncAge">—</span>
     </div>
 
@@ -37,13 +37,13 @@
   </header>
 
   <nav class="rail" id="rail">
-    <a href="#/missions" data-nav="missions"><span class="rail__key">M</span>Missions</a>
-    <a href="#/mine"     data-nav="mine"><span class="rail__key">E</span>Mes runs<b id="mineBadge" class="rail__badge" hidden>0</b></a>
-    <a href="#/stations" data-nav="stations"><span class="rail__key">S</span>Soutes</a>
-    <a href="#/recipes"  data-nav="recipes"><span class="rail__key">A</span>Armurerie</a>
-    <a href="#/routes"   data-nav="routes"><span class="rail__key">R</span>Routes</a>
-    <a href="#/board"    data-nav="board"><span class="rail__key">C</span>Classement</a>
-    <a href="#/admin"    data-nav="admin" id="navAdmin" hidden><span class="rail__key">⚙</span>Gestion</a>
+    <a href="#/missions" data-nav="missions"><span class="rail__key">M</span><span class="rail__label">Missions</span></a>
+    <a href="#/mine"     data-nav="mine"><span class="rail__key">E</span><span class="rail__label">My runs</span><b id="mineBadge" class="rail__badge" hidden>0</b></a>
+    <a href="#/stations" data-nav="stations"><span class="rail__key">S</span><span class="rail__label">Holds</span></a>
+    <a href="#/recipes"  data-nav="recipes"><span class="rail__key">A</span><span class="rail__label">Armory</span></a>
+    <a href="#/routes"   data-nav="routes"><span class="rail__key">R</span><span class="rail__label">Routes</span></a>
+    <a href="#/board"    data-nav="board"><span class="rail__key">C</span><span class="rail__label">Standings</span></a>
+    <a href="#/admin"    data-nav="admin" id="navAdmin" hidden><span class="rail__key">⚙</span><span class="rail__label">Manage</span></a>
   </nav>
 
   <main class="stage" id="stage"></main>

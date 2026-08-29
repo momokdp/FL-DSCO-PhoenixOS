@@ -3,17 +3,18 @@
    ===================================================================== */
 
 import { h, get, ago, clear, toast, loading, empty } from './ui.js';
+import { t, lang, setLang, languages } from './i18n.js';
 import { missionsView, mineView, stationsView, recipesView, routesView, boardView } from './views.js';
 import { adminView } from './admin.js';
 
 const ROUTES = {
-  missions: { view: missionsView, title: 'Missions' },
-  mine: { view: mineView, title: 'Mes runs' },
-  stations: { view: stationsView, title: 'Soutes' },
-  recipes: { view: recipesView, title: 'Armurerie' },
-  routes: { view: routesView, title: 'Routes' },
-  board: { view: boardView, title: 'Classement' },
-  admin: { view: adminView, title: 'Gestion', role: 'officer' },
+  missions: { view: missionsView, key: 'nav.missions' },
+  mine: { view: mineView, key: 'nav.mine' },
+  stations: { view: stationsView, key: 'nav.stations' },
+  recipes: { view: recipesView, key: 'nav.recipes' },
+  routes: { view: routesView, key: 'nav.routes' },
+  board: { view: boardView, key: 'nav.board' },
+  admin: { view: adminView, key: 'nav.admin', role: 'officer' },
 };
 
 const RANK = { member: 0, officer: 1, admin: 2 };
@@ -45,6 +46,7 @@ async function boot() {
   document.getElementById('boot').hidden = true;
   document.getElementById('shell').hidden = false;
 
+  paintNav();
   paintIdentity();
   paintSync();
   setInterval(paintSync, 30_000);
@@ -64,17 +66,41 @@ function showGate(message = null) {
   shell.className = 'gate';
   clear(shell).appendChild(h('div.gate__box',
     h('div.gate__mark', 'KDS'),
-    h('h1', 'Console logistique Kadesh'),
-    h('p', message || 'Identifiez-vous avec Discord pour consulter les soutes et prendre des missions.'),
-    !message && h('a.btn.btn--primary', { href: '/auth/discord' }, 'Se connecter avec Discord'),
+    h('h1', t('gate.title')),
+    h('p', message || t('gate.blurb')),
+    !message && h('a.btn.btn--primary', { href: '/auth/discord' }, t('gate.button')),
+    h('div.gate__langs', langSwitch()),
   ));
 }
 
 /* ---------------------------------------------------------- en-tête */
 
+/** Bascule de langue : deux boutons, choix mémorisé. */
+function langSwitch() {
+  return h('div.langs', languages.map((code) =>
+    h('button.chip', {
+      type: 'button',
+      class: code === lang ? 'is-on' : null,
+      onClick: () => { setLang(code); location.reload(); },
+    }, code.toUpperCase())));
+}
+
+/** Les libellés de navigation sont posés par le code, pas figés en HTML. */
+function paintNav() {
+  for (const link of document.querySelectorAll('#rail a[data-nav]')) {
+    const entry = ROUTES[link.dataset.nav];
+    const label = link.querySelector('.rail__label');
+    if (entry && label) label.textContent = t(entry.key);
+  }
+  const brand = document.querySelector('.brand__name');
+  if (brand) brand.textContent = t('app.title');
+  const sync = document.querySelector('.sync__label');
+  if (sync) sync.textContent = t('sync.label');
+}
+
 function paintIdentity() {
   const u = ctx.user;
-  const role = u.role === 'admin' ? 'Administrateur' : u.role === 'officer' ? 'Officier' : 'Pilote';
+  const role = t(`role.${u.role}`);
   const avatar = u.avatar
     ? `https://cdn.discordapp.com/avatars/${u.id}/${u.avatar}.png?size=64`
     : null;
@@ -82,7 +108,8 @@ function paintIdentity() {
   clear(document.getElementById('whoami')).append(
     h('span.who__name', u.callsign || u.displayName || u.username),
     h('span.who__role', role),
-    h('a.btn.btn--ghost.btn--sm', { href: '/auth/logout' }, 'Quitter'),
+    langSwitch(),
+    h('a.btn.btn--ghost.btn--sm', { href: '/auth/logout' }, t('nav.logout')),
   );
   if (avatar) document.querySelector('.who').style.setProperty('--avatar', `url(${avatar})`);
 }
@@ -90,7 +117,8 @@ function paintIdentity() {
 function paintSync() {
   const pill = document.getElementById('syncPill');
   const at = ctx.sync?.lastSyncAt || ctx.sync?.last?.finished_at;
-  document.getElementById('syncAge').textContent = at ? `il y a ${ago(at)}` : 'jamais';
+  document.getElementById('syncAge').textContent =
+    at ? t('common.ago', { v: ago(at) }) : t('sync.never');
   const stale = !at || (Date.now() - Date.parse(String(at).replace(' ', 'T') + 'Z')) > 45 * 60_000;
   pill.classList.toggle('is-down', ctx.sync?.last?.status === 'error');
   pill.classList.toggle('is-stale', stale && ctx.sync?.last?.status !== 'error');
@@ -104,18 +132,17 @@ async function render(route, { silent = false } = {}) {
   const entry = ROUTES[route] || ROUTES.missions;
 
   if (entry.role && RANK[ctx.user.role] < RANK[entry.role]) {
-    stage().replaceChildren(empty('Accès réservé',
-      'Cette section est réservée aux officiers. Demandez à un administrateur de vous y autoriser.'));
+    stage().replaceChildren(empty(t('denied.title'), t('denied.body')));
     return;
   }
 
   for (const link of document.querySelectorAll('#rail a')) {
     link.classList.toggle('is-active', link.dataset.nav === route);
   }
-  document.title = `${entry.title} · Console Kadesh`;
+  document.title = `${t(entry.key)} \u00b7 ${t('app.title')}`;
 
   const mine = ++token;
-  if (!silent) stage().replaceChildren(loading());
+  if (!silent) stage().replaceChildren(loading(t('common.loading')));
 
   try {
     const node = await entry.view(ctx);
@@ -124,8 +151,8 @@ async function render(route, { silent = false } = {}) {
     stage().scrollTop = 0;
   } catch (e) {
     if (mine !== token) return;
-    stage().replaceChildren(empty('Chargement impossible', e.message,
-      h('button.btn.btn--ghost', { type: 'button', onClick: () => render(route) }, 'Réessayer')));
+    stage().replaceChildren(empty(t('common.failed'), e.message,
+      h('button.btn.btn--ghost', { type: 'button', onClick: () => render(route) }, t('common.retry'))));
   }
 
   refreshBadge();

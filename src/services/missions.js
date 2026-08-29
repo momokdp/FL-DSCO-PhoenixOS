@@ -104,8 +104,9 @@ export function listOpenMissions({ stationId = null, direction = null, userId = 
   const rows = db.prepare(`
     SELECT
       m.id, m.direction, m.target_qty, m.priority, m.origin, m.auto, m.created_at,
+      m.reward_multiplier,
       st.id AS station_id, st.name AS station_name, st.code AS station_code,
-      i.id AS item_id, i.name AS item_name, i.vendor_hint,
+      i.id AS item_id, i.name AS item_name, i.vendor_hint, i.volume AS item_volume,
       COALESCE(v.effective_qty, 0) AS current_qty,
       COALESCE(v.min_stock, 0) AS min_stock,
       COALESCE(v.max_stock, 0) AS max_stock,
@@ -128,7 +129,7 @@ export function listOpenMissions({ stationId = null, direction = null, userId = 
   `).all(userId, stationId, stationId, direction, direction);
 
   const claimants = db.prepare(`
-    SELECT c.mission_id, u.display_name, u.callsign, u.avatar, c.pledged_qty
+    SELECT c.mission_id, c.user_id, u.display_name, u.callsign, u.avatar, c.pledged_qty
     FROM mission_claims c JOIN users u ON u.id = c.user_id
     WHERE c.status = 'in_progress'
   `).all();
@@ -140,6 +141,7 @@ export function listOpenMissions({ stationId = null, direction = null, userId = 
       name: c.callsign || c.display_name,
       avatar: c.avatar,
       pledged: c.pledged_qty,
+      mine: c.user_id === userId,
     });
   }
 
@@ -287,3 +289,66 @@ export function leaderboard(days = 30) {
     LIMIT 50
   `).all(`-${Math.max(1, days)} days`);
 }
+
+/* ------------------------------------------------- historique et annulation */
+
+/**
+ * Historique des engagements d'un pilote, du plus récent au plus ancien.
+ */
+export function claimHistory(userId, limit = 100) {
+  return db.prepare(`
+    SELECT c.id AS claim_id, c.status, c.pledged_qty, c.delivered_qty, c.points,
+           c.claimed_at, c.closed_at, c.cancel_reason,
+           m.direction, m.reward_multiplier,
+           i.name AS item_name, i.volume AS item_volume,
+           st.name AS station_name, st.code AS station_code,
+           cb.callsign AS cancelled_by_callsign, cb.display_name AS cancelled_by_name
+    FROM mission_claims c
+    JOIN missions m  ON m.id  = c.mission_id
+    JOIN items i     ON i.id  = m.item_id
+    JOIN stations st ON st.id = m.station_id
+    LEFT JOIN users cb ON cb.id = c.cancelled_by
+    WHERE c.user_id = ? AND c.status <> 'in_progress'
+    ORDER BY COALESCE(c.closed_at, c.claimed_at) DESC
+    LIMIT ?
+  `).all(userId, limit);
+}
+
+/**
+ * Annule une livraison enregistrée.
+ *
+ * L'ajustement de stock est supprimé plutôt que compensé : une saisie
+ * erronée n'a pas à laisser deux écritures qui s'annulent dans l'historique
+ * des stocks. La trace de l'annulation reste sur l'engagement lui-même et
+ * dans le journal d'audit.
+ */
+export const cancelDelivery = db.transaction((claimId, actorId, { isOfficer = false, reason = null } = {}) => {
+  const claim = db.prepare(`
+    SELECT c.*, m.station_id, m.item_id, m.direction
+    FROM mission_claims c JOIN missions m ON m.id = c.mission_id
+    WHERE c.id = ?
+  `).get(claimId);
+
+  if (!claim) return { ok: false, error: 'Engagement introuvable.' };
+  if (claim.status !== 'delivered') {
+    return { ok: false, error: 'Seule une livraison enregistrée peut être annulée.' };
+  }
+  if (claim.user_id !== actorId && !isOfficer) {
+    return { ok: false, error: "Cette livraison appartient à un autre pilote." };
+  }
+
+  db.prepare(`DELETE FROM stock_adjustments WHERE claim_id = ?`).run(claimId);
+
+  db.prepare(`
+    UPDATE mission_claims
+    SET status = 'cancelled', points = 0, cancelled_by = ?, cancel_reason = ?,
+        closed_at = datetime('now')
+    WHERE id = ?
+  `).run(actorId, reason, claimId);
+
+  // Le besoin peut être redevenu ouvert : on laisse la génération
+  // automatique statuer plutôt que de rouvrir la mission à l'aveugle.
+  refreshAutoMissions();
+
+  return { ok: true, restored: claim.delivered_qty };
+});

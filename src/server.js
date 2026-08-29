@@ -91,6 +91,13 @@ app.get('/healthz', (_req, res) => {
 });
 
 // Toutes les autres URL renvoient la coque : le routage se fait côté client.
+// Une URL /api inconnue doit renvoyer du JSON, pas la page de l'application :
+// sinon le client reçoit du HTML en réponse à un appel d'API et ne peut pas
+// distinguer une faute de frappe d'un proxy mal configuré.
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: `Route inconnue : ${req.method} /api${req.path}` });
+});
+
 app.get('*', (_req, res) => {
   res.sendFile(path.join(ROOT, 'public', 'index.html'));
 });

@@ -4,9 +4,9 @@ import { requireAuth, publicUser } from '../auth/middleware.js';
 import { listStations, stationInventory, itemAcrossStations, syncState } from '../services/stock.js';
 import {
   listOpenMissions, claimMission, deliverClaim, abandonClaim,
-  myClaims, leaderboard, refreshAutoMissions,
+  myClaims, leaderboard, refreshAutoMissions, claimHistory, cancelDelivery,
 } from '../services/missions.js';
-import { subscribe } from '../services/events.js';
+import { subscribe, broadcast } from '../services/events.js';
 
 export const apiRouter = express.Router();
 
@@ -118,6 +118,29 @@ apiRouter.get('/routes', requireAuth, (req, res) => {
 // ---------------------------------------------------------------- divers
 apiRouter.get('/items/:id/stock', requireAuth, (req, res) => {
   res.json(itemAcrossStations(Number(req.params.id)));
+});
+
+// ------------------------------------------------------------ historique
+
+apiRouter.get('/missions/history', requireAuth, (req, res) => {
+  res.json(claimHistory(req.user.id));
+});
+
+/**
+ * Annulation d'une livraison : un pilote retire les siennes, un officier
+ * peut corriger celles de n'importe qui.
+ */
+apiRouter.post('/claims/:id/cancel', requireAuth, (req, res) => {
+  const isOfficer = req.user.role === 'officer' || req.user.role === 'admin';
+  const result = cancelDelivery(Number(req.params.id), req.user.id, {
+    isOfficer,
+    reason: (req.body && req.body.reason) || null,
+  });
+  if (!result.ok) return res.status(400).json({ error: result.error });
+
+  broadcast('stock:updated', {});
+  broadcast('missions:changed', {});
+  res.json(result);
 });
 
 apiRouter.get('/leaderboard', requireAuth, (req, res) => {
