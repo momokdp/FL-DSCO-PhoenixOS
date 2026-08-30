@@ -508,6 +508,42 @@ export async function routesView() {
     );
   }
 
+  const auto = routes.filter((r) => r.auto);
+  const manuelles = routes.filter((r) => !r.auto);
+  const releve = auto.find((r) => r.computed_at)?.computed_at;
+
+  return h('div',
+    h('div.head', h('span.eyebrow', t('routes.eyebrow')), h('h1', t('routes.title'))),
+
+    manuelles.length ? panel(t('routes.manualTitle'), { count: manuelles.length },
+      h('div', groupesManuels(manuelles))) : null,
+
+    auto.length ? panel(t('routes.autoTitle'), {
+      count: auto.length, flush: true,
+      tools: releve ? h('span.hint', t('routes.scanned', { v: ago(releve) })) : null,
+    },
+    h('p.hint', { style: 'padding:.75rem 1rem 0;margin:0' }, t('routes.caveat')),
+    h('table.table',
+      h('thead', h('tr', ...['', t('recipes.colComponent'), t('mine.colStation'),
+        t('routes.buyAt'), t('stations.hull'), 'cr'].map((x, i) =>
+        h('th', { class: i === 5 ? 'num' : null }, i === 4 ? 'Système' : x)))),
+      h('tbody', auto.map((r) => h('tr',
+        h('td', h('span.mission__arrow', { class: `is-${r.direction}` },
+          r.direction === 'export' ? '\u2191' : '\u2193')),
+        h('td', h('strong', r.item_name)),
+        h('td', r.dest_name),
+        h('td', h('b.route__base', r.source_label),
+          r.faction_name ? h('em.hint', r.faction_name) : null),
+        h('td', r.system_name || '\u2014',
+          r.sector_coord ? h('em.hint', r.sector_coord) : null),
+        h('td', { class: 'num' }, r.price != null ? num(r.price) : '\u2014'),
+      ))),
+    )) : null,
+  );
+}
+
+/** Routes saisies : regroupées par couple origine-destination. */
+function groupesManuels(routes) {
   const lanes = new Map();
   for (const r of routes) {
     const from = r.source_name || r.source_label || t('routes.external');
@@ -515,14 +551,10 @@ export async function routesView() {
     if (!lanes.has(key)) lanes.set(key, { from, to: r.dest_name, goods: [] });
     lanes.get(key).goods.push(r.item_name);
   }
-
-  return h('div',
-    h('div.head', h('span.eyebrow', t('routes.eyebrow')), h('h1', t('routes.title'))),
-    h('div', [...lanes.values()].map((lane) =>
-      panel(`${lane.from} \u2192 ${lane.to}`, { count: lane.goods.length },
-        h('div.crew', lane.goods.map((g) => h('span.chip', g))),
-      ))),
-  );
+  return [...lanes.values()].map((lane) => h('div', { style: 'margin-bottom:.9rem' },
+    h('p.mission__leg', h('span.mission__legLabel', `${lane.from} \u2192 ${lane.to}`)),
+    h('div.crew', lane.goods.map((g) => h('span.chip', g))),
+  ));
 }
 
 /* ========================================================== classement */

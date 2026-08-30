@@ -2,6 +2,7 @@ import express from 'express';
 import { db, audit, nowSql, getSetting, setSetting } from '../db/index.js';
 import { requireRole } from '../auth/middleware.js';
 import { syncNow, isSyncRunning } from '../sync/darkstat.js';
+import { analyserRoutes } from '../sync/routes.js';
 import { broadcast } from '../services/events.js';
 import { importRecipesFromConfig } from '../services/recipeImport.js';
 import { config } from '../config.js';
@@ -142,6 +143,54 @@ adminRouter.delete('/items/:id', admin, (req, res) => {
 // ===================================================================
 // Routes commerciales
 // ===================================================================
+// ------------------------------------------------- routes automatiques
+
+adminRouter.post('/routes/analyze', officer, async (req, res) => {
+  try {
+    const r = await analyserRoutes();
+    if (!r.ok) return res.status(502).json({ error: r.error });
+    audit(req.user.id, 'routes.analyzed', 'routes', null, r);
+    res.json(r);
+  } catch (err) {
+    res.status(500).json({ error: `Analyse impossible : ${err.message}` });
+  }
+});
+
+// --------------------------------------------------- réputations interdites
+//
+// Une base peut vendre au meilleur prix et rester inaccessible : hostilité,
+// doctrine de l'escadrille, zone de guerre. Ces factions sont écartées du
+// calcul des routes.
+
+adminRouter.get('/factions/blocked', officer, (req, res) => {
+  res.json(db.prepare(`
+    SELECT b.faction_name, b.reason, b.created_at, u.callsign, u.display_name
+    FROM blocked_factions b
+    LEFT JOIN users u ON u.id = b.created_by
+    ORDER BY b.faction_name
+  `).all());
+});
+
+adminRouter.post('/factions/blocked', officer, (req, res) => {
+  const nom = String(req.body?.faction_name || '').trim();
+  if (!nom) return fail(res, 400, 'Nom de faction obligatoire.');
+
+  db.prepare(`
+    INSERT INTO blocked_factions (faction_name, reason, created_by)
+    VALUES (?, ?, ?)
+    ON CONFLICT(faction_name) DO UPDATE SET reason = excluded.reason
+  `).run(nom, String(req.body?.reason || '').trim() || null, req.user.id);
+
+  audit(req.user.id, 'faction.blocked', 'factions', null, { faction: nom });
+  res.json({ ok: true });
+});
+
+adminRouter.delete('/factions/blocked/:name', officer, (req, res) => {
+  db.prepare('DELETE FROM blocked_factions WHERE faction_name = ?').run(req.params.name);
+  audit(req.user.id, 'faction.unblocked', 'factions', null, { faction: req.params.name });
+  res.json({ ok: true });
+});
+
 adminRouter.get('/routes', officer, (req, res) => {
   res.json(db.prepare(`
     SELECT r.*, i.name AS item_name, src.name AS source_name, dst.name AS dest_name

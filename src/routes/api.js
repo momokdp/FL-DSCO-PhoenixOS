@@ -102,7 +102,8 @@ apiRouter.get('/recipes', requireAuth, (req, res) => {
 // ---------------------------------------------------------------- routes
 apiRouter.get('/routes', requireAuth, (req, res) => {
   res.json(db.prepare(`
-    SELECT r.id, r.priority, r.source_label,
+    SELECT r.id, r.priority, r.source_label, r.auto, r.direction,
+           r.faction_name, r.system_name, r.sector_coord, r.price, r.computed_at,
            i.name AS item_name, i.id AS item_id,
            src.name AS source_name, src.code AS source_code,
            dst.name AS dest_name,  dst.code AS dest_code, dst.id AS dest_id
@@ -111,7 +112,7 @@ apiRouter.get('/routes', requireAuth, (req, res) => {
     LEFT JOIN stations src ON src.id = r.source_id
     JOIN stations dst ON dst.id = r.dest_id
     WHERE r.active = 1
-    ORDER BY dst.sort_order, src.sort_order, i.name
+    ORDER BY r.auto, dst.sort_order, i.name
   `).all());
 });
 

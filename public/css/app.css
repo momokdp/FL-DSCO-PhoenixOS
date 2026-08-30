@@ -922,3 +922,6 @@ a:hover { text-decoration: underline; }
   .mission__bonus[data-tier="epic"] { animation: none; }
 }
 .way--both { color: var(--amber); border-color: rgba(232,163,61,.4); }
+.route__base { color: var(--ion); }
+.mission__arrow.is-import { color: var(--void); background: var(--ion); }
+.mission__arrow.is-export { color: var(--void); background: var(--moss); }
