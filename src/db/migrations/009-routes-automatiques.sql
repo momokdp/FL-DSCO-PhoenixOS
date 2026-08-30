@@ -38,4 +38,3 @@ CREATE TABLE IF NOT EXISTS blocked_factions (
   created_at   TEXT NOT NULL DEFAULT (datetime('now')),
   created_by   INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
-ALTER TABLE routes ADD COLUMN margin REAL;

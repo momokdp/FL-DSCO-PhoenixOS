@@ -689,12 +689,33 @@ async function syncPane(ctx) {
     }
   };
 
+  /** Analyse du marché, à la demande : le cycle automatique est horaire. */
+  const analyserRoutes = async (btn) => {
+    btn.disabled = true;
+    const libelle = btn.textContent;
+    btn.textContent = 'Analyse…';
+    try {
+      const r = await post('/admin/routes/analyze');
+      toast(r.trouvees
+        ? `${num(r.trouvees)} route(s) suggérée(s) sur ${num(r.analysees)} besoin(s).`
+        : 'Aucune route trouvée. Vérifiez que des missions sont ouvertes.');
+    } catch (e) {
+      notifyError(e);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = libelle;
+    }
+  };
+
   const STATUS = { ok: 'Terminé', partial: 'Partiel', error: 'Échec', running: 'En cours' };
 
   return panel('Relevés de l\'API darkstat', {
     count: logs.length, flush: true,
-    tools: h('button.btn.btn--primary.btn--sm', { type: 'button', onClick: (e) => runNow(e.target) },
-      'Lancer un relevé'),
+    tools: h('span', { style: 'display:flex;gap:.5rem' },
+      h('button.btn.btn--ghost.btn--sm', { type: 'button', onClick: (e) => analyserRoutes(e.target) },
+        'Analyser les routes'),
+      h('button.btn.btn--primary.btn--sm', { type: 'button', onClick: (e) => runNow(e.target) },
+        'Lancer un relevé')),
   },
   logs.length
     ? table([{ label: 'Début' }, { label: 'Durée' }, { label: 'État' },
