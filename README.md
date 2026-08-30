@@ -339,6 +339,17 @@ sous du code récent réappliquerait la migration.
 
 ---
 
+## Documentation interne
+
+- `docs/API-DARKSTAT.md` — schémas d'API **vérifiés par observation**.
+  À lire avant d'écrire du code contre darkstat : chaque piège qui y figure
+  a coûté un aller-retour.
+- `docs/DECISIONS.md` — les choix de conception et leur raison.
+  Les ignorer réintroduit des bugs déjà corrigés.
+- `docs/ROADMAP.md` — le chantier suivant et ce qui reste ouvert.
+
+---
+
 ## Organisation du code
 
 ```
