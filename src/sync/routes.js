@@ -141,10 +141,17 @@ async function lireMarche(nicknames) {
     const minuteur = setTimeout(() => ctrl.abort(), config.darkstat.timeoutMs ?? 20000);
     try {
       const res = await fetch(`${config.darkstat.baseUrl}${chemin}`, { ...options, signal: ctrl.signal });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        // Un corps mal formé renvoie 400 : sans cette trace, l'analyse
+        // semblait simplement ne rien trouver.
+        const detail = await res.text().catch(() => '');
+        console.warn(`[routes] ${chemin} a répondu ${res.status} ${detail.slice(0, 120)}`);
+        return null;
+      }
       return await res.json();
-    } catch {
-      return null;                 // un endpoint muet ne bloque pas les autres
+    } catch (err) {
+      console.warn(`[routes] ${chemin} injoignable : ${err.message}`);
+      return null;
     } finally {
       clearTimeout(minuteur);
     }
@@ -153,10 +160,13 @@ async function lireMarche(nicknames) {
   const commodities = await appeler('/api/commodities', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    // Types imposés par le schéma GetCommoditiesInput : deux booléens et
+    // un tableau de chaînes. Envoyer « "true" » au lieu de « true » fait
+    // échouer le décodage du corps côté darkstat.
     body: JSON.stringify({
-      include_market_goods: 'true',
+      include_market_goods: true,
       filter_to_useful: false,
-      ...(nicknames?.length ? { filter_nicknames: nicknames } : {}),
+      ...(nicknames?.length ? { filter_nicknames: nicknames.map(String) } : {}),
     }),
   });
   if (commodities) fusionner(commodities);
