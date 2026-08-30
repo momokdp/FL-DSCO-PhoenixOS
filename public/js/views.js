@@ -89,6 +89,8 @@ function missionCard(m, ctx) {
   const primeMission = Number(m.reward_multiplier) > 0 ? Number(m.reward_multiplier) : 1;
   const primeItem = Number(m.risk_bonus) > 0 ? Number(m.risk_bonus) : 1;
   const prime = primeMission * primeItem;
+  // Palier de prime : plus elle est forte, plus elle doit sauter aux yeux.
+  const palier = prime >= 10 ? 'epic' : prime >= 3 ? 'high' : prime > 1 ? 'mid' : null;
   const parUnite = volume * prime;
   const complete = restant <= 0;
 
@@ -113,10 +115,12 @@ function missionCard(m, ctx) {
   return h('article.mission', { dataset: { priority: m.priority, dir: m.direction } },
 
     h('header.mission__bar',
+      h('span.mission__arrow', m.direction === 'export' ? '\u2191' : '\u2193'),
       h('span.mission__way', t(`dir.${m.direction}Short`)),
       // La prime décide souvent du choix du pilote : elle doit se voir avant
       // même qu'il lise le reste de la carte.
-      prime !== 1 ? h('span.mission__bonus', t('mission.riskBonus', { v: dec(prime) })) : null,
+      palier ? h('span.mission__bonus', { dataset: { tier: palier } },
+        t('mission.riskBonus', { v: dec(prime) })) : null,
       h('span.spacer'),
       m.auto ? h('span.tag.tag--auto', t('mission.auto')) : null,
       h('span.mission__prio', t(`priority.${m.priority}`)),

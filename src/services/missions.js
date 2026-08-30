@@ -28,6 +28,14 @@ export const refreshAutoMissions = db.transaction(() => {
   //
   // Les seuils opposés gardent un rôle : ils marquent l'urgence. Passer
   // sous le seuil bas (ou au-dessus du plafond) rend la mission critique.
+  // Une marchandise peut circuler dans les deux sens : on en apporte quand
+  // la soute est basse, on en retire quand elle déborde. Le mode 'both'
+  // ouvre donc l'une ou l'autre mission selon le niveau du moment.
+  //
+  // Une mission peut aussi dépendre de l'état d'une AUTRE marchandise :
+  // rappeler de produire du Chiromaterial n'a de sens que si le
+  // Chirodebris qui l'alimente est plein. C'est le rôle de la condition
+  // « gate », évaluée sur la même station.
   const besoins = db.prepare(`
     SELECT v.station_id, v.item_id, 'import' AS direction,
            v.max_stock - v.effective_qty AS qty,
@@ -35,23 +43,34 @@ export const refreshAutoMissions = db.transaction(() => {
                 THEN 1 ELSE 0 END AS urgent
     FROM v_effective_stock v
     JOIN stations st ON st.id = v.station_id AND st.active = 1
-    WHERE v.is_export = 0
-      AND v.is_hidden = 0
+    LEFT JOIN v_item_level g
+           ON g.station_id = v.station_id AND g.item_id = v.gate_item_id
+    WHERE v.is_hidden = 0
+      AND v.flow_mode IN ('import','both')
       AND v.max_stock > 0
       AND v.max_stock <= @plafond_absurde
-      AND v.effective_qty < v.max_stock
+      AND v.effective_qty < CASE WHEN v.flow_mode = 'both'
+                                 THEN v.min_stock ELSE v.max_stock END
+      AND (v.gate_item_id IS NULL OR g.level = v.gate_state)
 
     UNION ALL
 
     SELECT v.station_id, v.item_id, 'export' AS direction,
-           v.effective_qty - v.min_stock AS qty,
+           -- En mode « les deux », on ramène au plafond, pas au plancher :
+           -- vider jusqu'en bas rouvrirait aussitôt une mission d'import.
+           v.effective_qty - CASE WHEN v.flow_mode = 'both'
+                                  THEN v.max_stock ELSE v.min_stock END AS qty,
            CASE WHEN v.max_stock > 0 AND v.effective_qty > v.max_stock
                 THEN 1 ELSE 0 END AS urgent
     FROM v_effective_stock v
     JOIN stations st ON st.id = v.station_id AND st.active = 1
-    WHERE v.is_export = 1
-      AND v.is_hidden = 0
-      AND v.effective_qty > v.min_stock
+    LEFT JOIN v_item_level g
+           ON g.station_id = v.station_id AND g.item_id = v.gate_item_id
+    WHERE v.is_hidden = 0
+      AND v.flow_mode IN ('export','both')
+      AND v.effective_qty > CASE WHEN v.flow_mode = 'both'
+                                 THEN v.max_stock ELSE v.min_stock END
+      AND (v.gate_item_id IS NULL OR g.level = v.gate_state)
   `).all({ plafond_absurde: PLAFOND_ABSURDE });
 
   const wanted = new Set(besoins.map(d => `${d.station_id}:${d.item_id}:${d.direction}`));
@@ -113,6 +132,7 @@ export function listOpenMissions({ stationId = null, direction = null, userId = 
       COALESCE(v.min_stock, 0) AS min_stock,
       COALESCE(v.max_stock, 0) AS max_stock,
       COALESCE(v.risk_bonus, 1) AS risk_bonus,
+      v.flow_mode AS flow_mode,
       -- Une mission créée à la main garde son origine propre ; sinon on
       -- reprend le réglage permanent de la marchandise.
       COALESCE(NULLIF(m.origin, ''), v.origin) AS origin_hint,
@@ -292,6 +312,7 @@ export function myClaims(userId) {
     SELECT c.id AS claim_id, c.pledged_qty, c.claimed_at,
            i.volume AS item_volume, m.reward_multiplier,
            COALESCE(v.risk_bonus, 1) AS risk_bonus,
+      v.flow_mode AS flow_mode,
       -- Une mission créée à la main garde son origine propre ; sinon on
       -- reprend le réglage permanent de la marchandise.
       COALESCE(NULLIF(m.origin, ''), v.origin) AS origin_hint,

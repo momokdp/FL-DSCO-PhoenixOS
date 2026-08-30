@@ -863,3 +863,62 @@ a:hover { text-decoration: underline; }
   color: var(--dim); font-style: italic; font-weight: 400;
   border-bottom: 1px dotted var(--seam);
 }
+
+/* =====================================================================
+   Sens de circulation : lisible d'un coup d'œil.
+
+   Le seul libellé « INBOUND / OUTBOUND » ne suffisait pas : les deux
+   cartes se ressemblaient trop. Le sens colore désormais tout le bandeau
+   et porte une flèche, tandis que la criticité garde le liseré latéral et
+   la jauge. Deux signaux distincts, sur deux supports distincts.
+   ===================================================================== */
+.mission[data-dir="import"] .mission__bar {
+  background: linear-gradient(90deg, rgba(90,160,200,.20), rgba(90,160,200,.04));
+  border-bottom-color: rgba(90,160,200,.35);
+}
+.mission[data-dir="export"] .mission__bar {
+  background: linear-gradient(90deg, rgba(111,191,115,.20), rgba(111,191,115,.04));
+  border-bottom-color: rgba(111,191,115,.35);
+}
+
+.mission__arrow {
+  font-size: 1rem; line-height: 1; font-weight: 700;
+  width: 1.15rem; height: 1.15rem; border-radius: 50%;
+  display: inline-grid; place-items: center;
+}
+.mission[data-dir="import"] .mission__arrow {
+  color: var(--void); background: var(--ion);
+}
+.mission[data-dir="export"] .mission__arrow {
+  color: var(--void); background: var(--moss);
+}
+.mission[data-dir="import"] .mission__way { color: var(--ion); }
+.mission[data-dir="export"] .mission__way { color: var(--moss); }
+
+/* Le sens marque aussi le bord opposé au liseré de criticité. */
+.mission[data-dir="import"] { box-shadow: inset -2px 0 0 rgba(90,160,200,.35); }
+.mission[data-dir="export"] { box-shadow: inset -2px 0 0 rgba(111,191,115,.35); }
+
+/* =====================================================================
+   Prime de risque : l'intensité visuelle suit la valeur.
+   ===================================================================== */
+.mission__bonus[data-tier="mid"] {
+  border-color: var(--amber); background: rgba(232,163,61,.15); color: var(--amber);
+}
+.mission__bonus[data-tier="high"] {
+  border-color: var(--rust); background: rgba(217,85,63,.20); color: #ff8a6a;
+}
+.mission__bonus[data-tier="epic"] {
+  border-color: #a06ad0;
+  background: linear-gradient(90deg, rgba(160,106,208,.35), rgba(160,106,208,.15));
+  color: #d7b3f5;
+  animation: pulseBonus 2.4s ease-in-out infinite;
+}
+@keyframes pulseBonus {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(160,106,208,.5); }
+  50%      { box-shadow: 0 0 0 4px rgba(160,106,208,0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mission__bonus[data-tier="epic"] { animation: none; }
+}
+.way--both { color: var(--amber); border-color: rgba(232,163,61,.4); }

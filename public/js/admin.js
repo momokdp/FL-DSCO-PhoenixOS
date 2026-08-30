@@ -210,8 +210,11 @@ async function thresholdsPane(ctx) {
         h('td',
           r.is_hidden
             ? h('span.way', { title: 'Retirée du tableau des missions' }, 'Masquée')
-            : h(`span.way.way--${r.is_export ? 'export' : 'import'}`,
-              r.is_export ? 'À enlever' : 'À livrer')),
+            : h(`span.way.way--${r.flow_mode || (r.is_export ? 'export' : 'import')}`,
+              r.flow_mode === 'both' ? 'Les deux'
+                : (r.flow_mode || (r.is_export ? 'export' : 'import')) === 'export'
+                  ? 'À enlever' : 'À livrer'),
+          r.gate_item_id ? h('span.tag', { title: 'Mission conditionnée' }, 'si') : null),
         h('td', { class: 'num' }, num(r.effective_qty)),
         h('td', { class: `num ${r.custom_min_stock != null ? 'is-ok' : ''}` }, num(r.min_stock)),
         h('td', { class: `num ${r.custom_max_stock != null ? 'is-ok' : ''}` }, num(r.max_stock)),
@@ -233,9 +236,24 @@ async function thresholdsPane(ctx) {
       class: 'input--num', value: r.custom_max_stock ?? '' });
     const note = input({ name: 'note', value: r.threshold_note || '',
       placeholder: 'Pourquoi cette valeur ? (facultatif)' });
-    const exporter = h('input', { type: 'checkbox', name: 'is_export', checked: !!r.is_export });
+    const mode = select([
+      { value: 'import', label: 'Import — on apporte, objectif : plafond' },
+      { value: 'export', label: 'Export — on enlève, objectif : plancher' },
+      { value: 'both', label: 'Les deux — on apporte sous le plancher, on enlève au-dessus du plafond' },
+    ], { name: 'flow_mode', value: r.flow_mode || (r.is_export ? 'export' : 'import') });
+
+    const gateItem = select(
+      [{ value: '', label: 'Aucune condition' },
+        ...inventaire.filter((x) => x.item_id !== r.item_id)
+          .map((x) => ({ value: x.item_id, label: x.name }))],
+      { name: 'gate_item_id', value: r.gate_item_id ?? '' });
+
+    const gateState = select([
+      { value: 'full', label: 'est pleine (à son plafond)' },
+      { value: 'low', label: 'est basse (sous son plancher)' },
+    ], { name: 'gate_state', value: r.gate_state || 'full' });
     const masquer = h('input', { type: 'checkbox', name: 'is_hidden', checked: !!r.is_hidden });
-    const prime = input({ type: 'number', name: 'risk_bonus', min: '0.1', max: '10', step: '0.1',
+    const prime = input({ type: 'number', name: 'risk_bonus', min: '0.1', max: '1000', step: '0.1',
       class: 'input--num', value: r.risk_bonus ?? 1 });
     const origine = input({ name: 'origin', value: r.origin || '',
       placeholder: 'Base PNJ, système, autre station…' });
@@ -253,10 +271,13 @@ async function thresholdsPane(ctx) {
           'Laisser vide pour garder la valeur de l\'API.'),
         field('Plafond', max,
           'Sert de repère haut sur la jauge. Laisser vide pour garder la valeur de l\'API.'),
-        field('Marchandise produite, à enlever', exporter,
-          'Cochez pour une marchandise que la station produit : la mission s\'ouvrira ' +
-          'quand le stock DÉPASSE le plafond, pour venir chercher le surplus. ' +
-          'Décochée, la mission s\'ouvre quand le stock passe SOUS le seuil bas.'),
+        field('Sens de circulation', mode,
+          '« Les deux » sert aux marchandises qu\'on approvisionne quand elles ' +
+          'manquent et qu\'on écoule quand elles s\'accumulent.'),
+        field('N\'ouvrir la mission que si…', gateItem,
+          'Pour une production en chaîne : ne rappeler de faire tourner le module ' +
+          'que lorsque la matière première est disponible.'),
+        field('…cette marchandise', gateState),
         field('Où charger  (missions entrantes)', origine,
           'Affiché au pilote sur chaque mission d\'approvisionnement de cette marchandise.'),
         field('Où emmener  (missions sortantes)', destination,
@@ -276,7 +297,10 @@ async function thresholdsPane(ctx) {
         { label: 'Enregistrer', variant: 'primary', onClick: (close) => close({
           min_stock: min.value === '' ? null : Number(min.value),
           max_stock: max.value === '' ? null : Number(max.value),
-          is_export: exporter.checked ? 1 : 0,
+          is_export: mode.value === 'export' ? 1 : 0,
+          flow_mode: mode.value,
+          gate_item_id: gateItem.value ? Number(gateItem.value) : null,
+          gate_state: gateItem.value ? gateState.value : null,
           is_hidden: masquer.checked ? 1 : 0,
           risk_bonus: Number(prime.value) || 1,
           origin: origine.value.trim() || null,
@@ -300,7 +324,8 @@ async function thresholdsPane(ctx) {
       'Rétablir')) return;
     try {
       await put(`/admin/stations/${ctx.seuilStation}/thresholds/${r.item_id}`,
-        { min_stock: null, max_stock: null, is_export: 0, is_hidden: 0,
+        { min_stock: null, max_stock: null, is_export: 0, is_hidden: 0, flow_mode: null,
+          gate_item_id: null, gate_state: null,
           risk_bonus: 1, origin: null, destination: null, note: null });
       toast('Valeurs de l\'API rétablies.');
       charger();

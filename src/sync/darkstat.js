@@ -210,7 +210,15 @@ function writeSnapshots(pobs, stamp = nowSql()) {
       let used = 0;
 
       for (const raw of shopItems) {
-        const name = String(raw.name || '').trim();
+        // darkstat expose plusieurs variantes d'une même marchandise, dont
+        // des doublons au nom suffixé « () » qui portent des volumes
+        // différents (Military Salvage : 0,2 / 0,4 contre 1). On les fond
+        // sous un seul nom, et seule la variante sans parenthèses fait
+        // autorité sur le volume.
+        const nomBrut = String(raw.name || '').trim();
+        if (!nomBrut) continue;
+        const variante = /\(\s*\)\s*$/.test(nomBrut);
+        const name = nomBrut.replace(/\s*\(\s*\)\s*$/, '').trim();
         if (!name) continue;
 
         const nickname = String(raw.nickname || '').trim() || null;
@@ -230,7 +238,8 @@ function writeSnapshots(pobs, stamp = nowSql()) {
           item = { id: insertItem.run(name, nickname, categorie, volume).lastInsertRowid };
         } else {
           if (nickname && !item.commodity_id) completerItem.run(nickname, item.id);
-          majVolume.run(volume, item.id, volume);
+          // Une variante « () » ne doit pas écraser le volume de référence.
+          if (!variante) majVolume.run(volume, item.id, volume);
         }
 
         const qty = Number(raw.quantity) || 0;

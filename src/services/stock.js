@@ -26,6 +26,7 @@ export function stationInventory(stationId) {
       v.api_min_stock, v.api_max_stock,
       v.custom_min_stock, v.custom_max_stock, v.threshold_note, v.has_custom,
       v.is_export, v.is_hidden, v.risk_bonus, v.origin, v.destination,
+      v.flow_mode, v.gate_item_id, v.gate_state,
       CASE
         -- Marchandise produite : l'objectif est la soute vidée jusqu'au
         -- plancher. Un stock qui déborde le plafond devient alarmant.
@@ -79,7 +80,8 @@ export function syncState() {
  * Quand les deux redeviennent nuls, la ligne est supprimée : une table de
  * réglages ne doit contenir que de vrais réglages.
  */
-export function setThreshold({ stationId, itemId, minStock, maxStock, note, isExport, isHidden, riskBonus, origin, destination, userId }) {
+export function setThreshold({ stationId, itemId, minStock, maxStock, note, isExport, isHidden, riskBonus, origin, destination,
+  flowMode, gateItemId, gateState, userId }) {
   const propre = (v) => (v === null || v === undefined || v === '' ? null : Number(v));
   const min = propre(minStock);
   const max = propre(maxStock);
@@ -96,13 +98,17 @@ export function setThreshold({ stationId, itemId, minStock, maxStock, note, isEx
 
   const exporte = isExport ? 1 : 0;
   const masque = isHidden ? 1 : 0;
-  // Bornée : une prime aberrante fausserait durablement le classement.
-  const prime = Math.min(10, Math.max(0.1, Number(riskBonus) || 1));
+  // Bornée haut à 1000 pour permettre des missions exceptionnelles, et bas
+  // à 0,1 pour qu'une saisie à zéro n'annule pas silencieusement les points.
+  const prime = Math.min(1000, Math.max(0.1, Number(riskBonus) || 1));
 
+  const mode = ['import', 'export', 'both'].includes(flowMode) ? flowMode : null;
+  const gateId = Number(gateItemId) > 0 ? Number(gateItemId) : null;
+  const gate = gateId && ['low', 'full'].includes(gateState) ? gateState : null;
   const depuis = (origin || '').trim() || null;
   const vers = (destination || '').trim() || null;
 
-  if (min === null && max === null && !exporte && !masque && prime === 1 && !depuis && !vers) {
+  if (min === null && max === null && !exporte && !masque && prime === 1 && !depuis && !vers && !mode && !gateId) {
     db.prepare('DELETE FROM stock_thresholds WHERE station_id = ? AND item_id = ?')
       .run(stationId, itemId);
     return { ok: true, cleared: true };
@@ -110,9 +116,9 @@ export function setThreshold({ stationId, itemId, minStock, maxStock, note, isEx
 
   db.prepare(`
     INSERT INTO stock_thresholds
-      (station_id, item_id, min_stock, max_stock, note, is_export, is_hidden, risk_bonus, origin, destination, updated_by)
+      (station_id, item_id, min_stock, max_stock, note, is_export, is_hidden, risk_bonus, origin, destination, flow_mode, gate_item_id, gate_state, updated_by)
     VALUES
-      (@station_id, @item_id, @min_stock, @max_stock, @note, @is_export, @is_hidden, @risk_bonus, @origin, @destination, @updated_by)
+      (@station_id, @item_id, @min_stock, @max_stock, @note, @is_export, @is_hidden, @risk_bonus, @origin, @destination, @flow_mode, @gate_item_id, @gate_state, @updated_by)
     ON CONFLICT(station_id, item_id) DO UPDATE SET
       min_stock  = excluded.min_stock,
       max_stock  = excluded.max_stock,
@@ -122,6 +128,9 @@ export function setThreshold({ stationId, itemId, minStock, maxStock, note, isEx
       risk_bonus = excluded.risk_bonus,
       origin      = excluded.origin,
       destination = excluded.destination,
+      flow_mode    = excluded.flow_mode,
+      gate_item_id = excluded.gate_item_id,
+      gate_state   = excluded.gate_state,
       updated_at = datetime('now'),
       updated_by = excluded.updated_by
   `).run({
@@ -135,6 +144,9 @@ export function setThreshold({ stationId, itemId, minStock, maxStock, note, isEx
     risk_bonus: prime,
     origin: depuis,
     destination: vers,
+    flow_mode: mode,
+    gate_item_id: gateId,
+    gate_state: gate,
     updated_by: userId || null,
   });
 

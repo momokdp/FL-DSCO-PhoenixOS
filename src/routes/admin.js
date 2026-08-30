@@ -421,6 +421,9 @@ adminRouter.put('/stations/:id/thresholds/:itemId', officer, (req, res) => {
     riskBonus: req.body.risk_bonus,
     origin: req.body.origin,
     destination: req.body.destination,
+    flowMode: req.body.flow_mode,
+    gateItemId: req.body.gate_item_id,
+    gateState: req.body.gate_state,
     userId: req.user.id,
   });
   if (!result.ok) return res.status(400).json({ error: result.error });
