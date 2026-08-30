@@ -557,6 +557,204 @@ function groupesManuels(routes) {
   ));
 }
 
+/* ==================================================== boucles de trade */
+
+/**
+ * Circuits proposés au pilote.
+ *
+ * Un aller simple laisse rentrer à vide. Une boucle enchaîne deux missions
+ * ouvertes sur la même station — une d'apport, une d'enlèvement — et
+ * ramène le pilote à son point de départ.
+ *
+ * Les circuits sont calculés à l'heure par le serveur ; cet écran ne fait
+ * que les mettre à l'échelle du vaisseau déclaré. Changer de cale ne
+ * relance donc aucun calcul de marché, seulement une lecture.
+ */
+export async function loopsView(ctx) {
+  const state = ctx.loopFilters ||= {
+    station: '',
+    cargo: ctx.user?.cargoCapacity ?? '',
+    ship: ctx.user?.shipClass || 'transport',
+  };
+
+  const requete = () => {
+    const p = new URLSearchParams();
+    if (state.station) p.set('station', state.station);
+    if (state.cargo) p.set('cargo', state.cargo);
+    if (state.ship) p.set('ship', state.ship);
+    return `/loops?${p}`;
+  };
+
+  const [stations, data] = await Promise.all([get('/stations'), get(requete())]);
+
+  const corps = h('div.loops');
+
+  // Ces deux lignes changent à chaque relecture : la cale retenue et
+  // l'ancienneté du calcul. Les construire une fois puis les mettre à jour
+  // évite le piège d'un avis figé au premier rendu — il annonçait encore
+  // une cale de référence après que le pilote eut saisi la sienne.
+  const avis = h('p.hint.loops__notice', { hidden: true });
+  const releve = h('span.hint');
+
+  const peindre = (d) => {
+    avis.textContent = t('loops.defaultCargo', { v: num(d.cargo) });
+    avis.hidden = !d.usingDefaultCargo;
+    releve.textContent = d.computedAt ? t('loops.computed', { v: ago(d.computedAt) }) : '';
+
+    clear(corps);
+    if (!d.loops.length) {
+      corps.appendChild(empty(t('loops.empty'), t('loops.emptyHint')));
+      return;
+    }
+    for (const b of d.loops) corps.appendChild(loopCard(b, ctx));
+  };
+
+  const relire = async () => {
+    corps.replaceChildren(loading(t('common.loading')));
+    try { peindre(await get(requete())); } catch (e) { notifyError(e); }
+  };
+
+  const caleInput = input({
+    type: 'number', min: '1', step: '100', class: 'input--num',
+    value: state.cargo ?? '',
+    placeholder: String(data.cargo),
+    onChange: (e) => { state.cargo = e.target.value; relire(); },
+  });
+
+  const classeSelect = select(
+    ['transport', 'freighter', 'frigate'].map((v) => ({ value: v, label: t(`ship.${v}`) })),
+    { value: state.ship, onChange: (e) => { state.ship = e.target.value; relire(); } },
+  );
+
+  // Retenir le vaisseau évite de le ressaisir à chaque visite. Le réglage
+  // vit sur le profil du pilote, jamais sur la station : un même pilote
+  // alterne transport et cargo d'un vol à l'autre.
+  const retenir = h('button.btn.btn--ghost.btn--sm', {
+    type: 'button',
+    onClick: async () => {
+      try {
+        await post('/me/ship', { cargo: Number(state.cargo) || null, shipClass: state.ship });
+        if (ctx.user) {
+          ctx.user.cargoCapacity = Number(state.cargo) || null;
+          ctx.user.shipClass = state.ship;
+        }
+        toast(t('loops.saved'));
+        relire();
+      } catch (e) { notifyError(e); }
+    },
+  }, t('loops.save'));
+
+  peindre(data);
+
+  return h('div',
+    h('div.head', h('span.eyebrow', t('loops.eyebrow')), h('h1', t('loops.title'))),
+
+    h('div.toolbar',
+      select(
+        [{ value: '', label: t('loops.allStations') },
+          ...stations.map((st) => ({ value: st.id, label: st.name }))],
+        { value: state.station, onChange: (e) => { state.station = e.target.value; relire(); } },
+      ),
+      h('label.field.field--inline', h('span', t('loops.cargo')), caleInput),
+      h('label.field.field--inline', h('span', t('loops.shipClass')), classeSelect),
+      retenir,
+      h('span.spacer'),
+      releve,
+    ),
+
+    // Tant que le pilote n'a rien déclaré, les chiffres reposent sur une
+    // cale de référence : le dire vaut mieux que laisser croire le contraire.
+    avis,
+
+    h('p.hint', { style: 'margin:0 0 1rem;max-width:68ch' }, t('loops.caveat')),
+    corps,
+  );
+}
+
+/** Durée lisible : au-delà de l'heure, les minutes seules ne parlent plus. */
+function duree(secondes) {
+  const m = Math.max(1, Math.round(Number(secondes) / 60));
+  if (m < 60) return t('common.durationM', { m });
+  return t('common.durationH', { h: Math.floor(m / 60), m: String(m % 60).padStart(2, '0') });
+}
+
+/** Un lieu et ses attaches : faction, système, secteur. */
+function lieu(bout) {
+  const detail = [bout.faction, bout.system, bout.sector].filter(Boolean).join(' · ');
+  return h('span.loop__place',
+    h('b', bout.baseName),
+    detail ? h('em.hint', detail) : null,
+  );
+}
+
+function loopCard(b, ctx) {
+  const engager = async (missionId, qty) => {
+    if (!(qty > 0)) return;
+    try {
+      await post(`/missions/${missionId}/claim`, { pledged: qty });
+      toast(t('claim.done'));
+      ctx.reload();
+    } catch (e) { notifyError(e); }
+  };
+
+  // `secondes` à null : le segment ne se parcourt pas. C'est le cas du
+  // retour quand la boucle se referme sur sa propre base de départ —
+  // afficher une minute le ferait passer pour un trajet.
+  const segment = (rang, label, but, cargaison, argent, secondes) =>
+    h('li.loop__leg',
+      h('span.loop__rank', rang),
+      h('div.loop__to', h('span.loop__label', label), but),
+      h('div.loop__cargo', cargaison, argent ? h('em.hint', argent) : null),
+      h('span.loop__legTime', secondes == null ? '—' : duree(secondes)),
+    );
+
+  const charge = (bout) =>
+    h('span', h('b', num(bout.qty)), ` ${t('common.unit')} `, bout.itemName);
+
+  return h('article.loop',
+    h('header.loop__bar',
+      h('strong.loop__rate', t('loops.perHour', { v: num(b.pointsPerHour) })),
+      h('span.loop__points', `${num(b.points)} ${t('common.points')}`),
+      h('span.spacer'),
+      b.closesOnItself ? h('span.tag.tag--auto', t('loops.closesLoop')) : null,
+      h('span.loop__time', { title: t('loops.roundTrip') }, duree(b.totalSeconds)),
+    ),
+
+    h('ol.loop__legs',
+      // 1 — charger chez le fournisseur, livrer à la station.
+      segment('1', t('loops.legLoad'), lieu(b.inbound), charge(b.inbound),
+        b.inbound.cost != null ? t('loops.spend', { v: num(b.inbound.cost) }) : null,
+        b.inbound.seconds),
+
+      // 2 — la station : on dépose l'apport, on charge l'enlèvement.
+      segment('2', t('loops.legDeliver'),
+        h('span.loop__place', h('b', b.station.name), h('em.hint', b.station.code)),
+        charge(b.outbound), null, b.outbound.seconds),
+
+      // 3 — revendre, puis boucler sur le point de départ.
+      // L'étiquette de l'en-tête dit déjà que la boucle se referme : le
+      // répéter ici ne ferait qu'occuper la colonne du chargement.
+      segment('3', t('loops.legSell'), lieu(b.outbound),
+        b.closesOnItself
+          ? null
+          : h('span.hint', `${t('loops.legReturn')} ${b.inbound.baseName}`),
+        b.outbound.revenue != null ? t('loops.earn', { v: num(b.outbound.revenue) }) : null,
+        b.closesOnItself ? null : b.returnSeconds),
+    ),
+
+    h('div.mission__actions',
+      h('button.btn.btn--steel.btn--sm', {
+        type: 'button',
+        onClick: () => engager(b.inbound.missionId, b.inbound.qty),
+      }, `${t('loops.takeInbound')} · ${t('loops.forHold', { v: num(b.inbound.qty) })}`),
+      h('button.btn.btn--steel.btn--sm', {
+        type: 'button',
+        onClick: () => engager(b.outbound.missionId, b.outbound.qty),
+      }, `${t('loops.takeOutbound')} · ${t('loops.forHold', { v: num(b.outbound.qty) })}`),
+    ),
+  );
+}
+
 /* ========================================================== classement */
 
 export async function boardView(ctx) {

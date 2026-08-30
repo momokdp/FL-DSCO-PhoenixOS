@@ -925,3 +925,103 @@ a:hover { text-decoration: underline; }
 .route__base { color: var(--ion); }
 .mission__arrow.is-import { color: var(--void); background: var(--ion); }
 .mission__arrow.is-export { color: var(--void); background: var(--moss); }
+
+/* ---------------------------------------------------- boucles de trade */
+/*
+ * Une boucle se lit comme un plan de vol : trois lignes numérotées, dans
+ * l'ordre où le pilote les parcourt. Le débit en points par heure est mis
+ * en tête parce que c'est sur lui que le choix se fait — le reste ne sert
+ * qu'à vérifier que le circuit est réaliste.
+ */
+
+/* Réglage de la cale dans la barre d'outils : le libellé tient sur la
+   même ligne que le champ, sinon la barre double de hauteur. */
+.field--inline {
+  flex-direction: row; align-items: center; gap: .5rem; margin-bottom: 0;
+}
+.field--inline > span {
+  font-family: var(--mono); font-size: .66rem; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--muted); white-space: nowrap;
+}
+.field--inline .input { width: auto; min-width: 7rem; }
+
+.loops__notice {
+  color: var(--amber);
+  border-left: 2px solid var(--amber);
+  padding-left: .6rem; margin: 0 0 .9rem;
+}
+
+.loops { display: grid; gap: .9rem; }
+
+.loop {
+  background: var(--hull); border: 1px solid var(--seam);
+  border-left: 3px solid var(--ion);
+  border-radius: var(--r);
+  display: flex; flex-direction: column;
+}
+
+.loop__bar {
+  display: flex; align-items: baseline; gap: .7rem; flex-wrap: wrap;
+  padding: .6rem 1rem; border-bottom: 1px solid var(--seam);
+}
+.loop__rate {
+  font-family: var(--display); font-size: 1.3rem; font-weight: 600;
+  letter-spacing: .04em; color: var(--amber);
+}
+.loop__points { font-family: var(--mono); font-size: .74rem; color: var(--muted); }
+.loop__time {
+  font-family: var(--mono); font-size: .8rem; color: var(--ion);
+  border: 1px solid var(--seam); border-radius: var(--r); padding: .1rem .45rem;
+}
+
+.loop__legs { list-style: none; margin: 0; padding: .2rem 0; }
+
+.loop__leg {
+  display: grid;
+  grid-template-columns: 1.6rem minmax(0, 1.2fr) minmax(0, 1fr) auto;
+  align-items: baseline; gap: .7rem;
+  padding: .5rem 1rem;
+}
+.loop__leg + .loop__leg { border-top: 1px dashed var(--seam); }
+
+.loop__rank {
+  font-family: var(--mono); font-size: .7rem; color: var(--dim);
+  border: 1px solid var(--seam); border-radius: 50%;
+  width: 1.5rem; height: 1.5rem; line-height: 1.35rem; text-align: center;
+}
+
+.loop__to { display: flex; flex-direction: column; gap: .15rem; min-width: 0; }
+.loop__label {
+  font-family: var(--mono); font-size: .62rem; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--dim);
+}
+.loop__place { display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
+.loop__place > b { font-weight: 600; }
+.loop__place .hint { font-style: normal; }
+
+.loop__cargo { display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
+.loop__cargo .hint { font-style: normal; }
+
+.loop__legTime {
+  font-family: var(--mono); font-size: .74rem; color: var(--muted);
+  white-space: nowrap; text-align: right;
+}
+
+.loop .mission__actions { padding: .6rem 1rem .8rem; }
+
+/* En colonne étroite, la grille à quatre colonnes devient illisible :
+   chaque segment se replie alors sur deux lignes. */
+@media (max-width: 720px) {
+  .loop__leg {
+    grid-template-columns: 1.6rem minmax(0, 1fr) auto;
+  }
+  /* Le lieu et la durée restent côte à côte sur la première ligne ; la
+     cargaison passe dessous sur toute la largeur. Sans ces placements
+     explicites, la durée se retrouvait seule sur une troisième ligne,
+     alignée à gauche, détachée du segment qu'elle chiffre. */
+  .loop__rank     { grid-row: 1 / span 2; }
+  .loop__to       { grid-column: 2; grid-row: 1; }
+  .loop__legTime  { grid-column: 3; grid-row: 1; }
+  .loop__cargo    { grid-column: 2 / -1; grid-row: 2; }
+  .loop .mission__actions { flex-direction: column; }
+}

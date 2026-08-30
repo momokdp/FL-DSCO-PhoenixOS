@@ -181,6 +181,14 @@ function writeSnapshots(pobs, stamp = nowSql()) {
   const completerSysteme = db.prepare(
     'UPDATE stations SET system = ? WHERE id = ? AND (system IS NULL OR system = \'\')');
 
+  // Le nickname exact de la base côté API. `api_name` tolère le nom
+  // affiché comme le nickname, ce qui suffit au rapprochement des stocks ;
+  // /api/graph/paths, lui, n'accepte que le nickname et refuse
+  // « Kadesh Orbital City ». Contrairement au système, ce n'est pas un
+  // champ qu'un officier corrige : on le tient aligné sur l'API.
+  const majNickname = db.prepare(
+    'UPDATE stations SET api_nickname = ? WHERE id = ? AND (api_nickname IS NULL OR api_nickname <> ?)');
+
   const missing = [];   // station déclarée, aucune base correspondante
   const vides = [];     // base trouvée, mais sans aucune marchandise
   let stationsSeen = 0, rowsWritten = 0;
@@ -204,6 +212,9 @@ function writeSnapshots(pobs, stamp = nowSql()) {
 
       const systeme = String(pob.system_name || '').trim();
       if (systeme) completerSysteme.run(systeme, station.id);
+
+      const nick = String(pob.nickname || '').trim();
+      if (nick) majNickname.run(nick, station.id, nick);
 
       const shopItems = extraireMarchandises(pob);
       if (!shopItems.length) vides.push(station.api_name);

@@ -137,7 +137,7 @@ export function indexerMarche(payload) {
  * aussi la demande aux marchandises réellement utiles — le jeu en compte
  * plusieurs centaines, et la charge utile grossit vite avec les marchés.
  */
-async function lireMarche(nicknames) {
+export async function lireMarche(nicknames) {
   const index = new Map();
 
   const fusionner = (payload) => {
@@ -190,8 +190,16 @@ async function lireMarche(nicknames) {
 
 /* --------------------------------------------------------------- calcul */
 
-/** Meilleure offre pour un sens donné, hors factions interdites. */
-export function meilleureOffre(offres, direction, interdites, exclure = null) {
+/**
+ * Offres exploitables pour un sens donné, de la meilleure à la moins bonne.
+ *
+ * Les routes n'en retiennent qu'une, mais les boucles de trade en ont besoin
+ * de plusieurs : la base la moins chère n'est pas forcément la meilleure une
+ * fois le temps de trajet compté, et un candidat un peu plus cher mais sur
+ * le chemin l'emporte souvent. Sans plusieurs candidats, la distance n'a
+ * aucun moyen de peser sur le choix.
+ */
+export function meilleuresOffres(offres, direction, interdites, exclure = null, combien = 1) {
   const aEviter = exclure ? String(exclure).toLowerCase() : null;
 
   const utiles = (offres || []).filter((o) => {
@@ -210,7 +218,7 @@ export function meilleureOffre(offres, direction, interdites, exclure = null) {
     return o.prixVente != null && o.prixVente > 0;
   });
 
-  if (!utiles.length) return null;
+  if (!utiles.length) return [];
 
   // Import : on veut acheter au moins cher. Export : vendre au plus cher.
   // À prix comparable, une offre localisée vaut mieux qu'un prix agrégé
@@ -223,7 +231,25 @@ export function meilleureOffre(offres, direction, interdites, exclure = null) {
     return (a.agrege ? 1 : 0) - (b.agrege ? 1 : 0);
   });
 
-  return utiles[0];
+  // Une même base peut publier plusieurs lignes pour la même marchandise.
+  // Les garder toutes remplirait la liste de candidats identiques et
+  // évincerait des bases réellement différentes.
+  const vues = new Set();
+  const retenues = [];
+  for (const o of utiles) {
+    // Les prix agrégés n'ont pas de base : ils se valent tous, un suffit.
+    const k = o.baseNickname ? String(o.baseNickname).toLowerCase() : '@agrege';
+    if (vues.has(k)) continue;
+    vues.add(k);
+    retenues.push(o);
+    if (retenues.length >= combien) break;
+  }
+  return retenues;
+}
+
+/** Meilleure offre pour un sens donné, hors factions interdites. */
+export function meilleureOffre(offres, direction, interdites, exclure = null) {
+  return meilleuresOffres(offres, direction, interdites, exclure, 1)[0] ?? null;
 }
 
 export const analyserRoutes = async () => {
@@ -304,36 +330,6 @@ export const analyserRoutes = async () => {
 
 /* ------------------------------------------------------- planification */
 
-let minuteur = null;
-
-/**
- * Analyse périodique des routes.
- *
- * Volontairement découplée du relevé des stocks : les prix bougent à
- * l'échelle de l'heure, pas du quart d'heure. Le premier passage est
- * différé de deux minutes pour laisser un relevé de stock arriver — sans
- * missions ouvertes, l'analyse n'aurait rien à chercher.
- */
-export function startRoutesWorker() {
-  const every = config.darkstat.routesIntervalMs;
-  if (!every || every < 60_000) return;
-
-  const passe = async () => {
-    try {
-      const r = await analyserRoutes();
-      if (r.ok) console.log(`[routes] ${r.trouvees}/${r.analysees} route(s) suggérée(s)`);
-      else console.warn(`[routes] ${r.error}`);
-    } catch (err) {
-      console.warn(`[routes] échec : ${err.message}`);
-    }
-  };
-
-  setTimeout(passe, 120_000);
-  minuteur = setInterval(passe, every);
-  console.log(`[routes] analyse toutes les ${Math.round(every / 60000)} min`);
-}
-
-export function stopRoutesWorker() {
-  if (minuteur) clearInterval(minuteur);
-  minuteur = null;
-}
+// La passe périodique ne vit plus ici : elle enchaîne désormais l'analyse
+// des routes puis celle des boucles de trade, qui s'appuient toutes deux
+// sur le même relevé de marché. Voir `src/sync/analyse.js`.

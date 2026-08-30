@@ -13,7 +13,8 @@
     "migrate": "node src/db/run-migrations.js",
     "backup": "node src/db/backup.js",
     "db:init": "node src/db/seed.js",
-    "sync:now": "node src/sync/run-once.js"
+    "sync:now": "node src/sync/run-once.js",
+    "analyse:now": "node src/sync/analyse-once.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.5.0",

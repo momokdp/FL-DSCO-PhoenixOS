@@ -19,6 +19,9 @@ paramètre depuis l'interface.
   que l'API l'ait confirmée.
 - **Armurerie** : recettes de fabrication avec le stock de chaque composant, station
   par station, et ce qu'il reste à couvrir.
+- **Boucles de trade** : des circuits complets — charger chez un vendeur, livrer
+  chez nous, recharger ce que nous produisons, revendre, revenir — classés au
+  temps de vol réel et mis à l'échelle de la cale du pilote.
 - **Gestion complète** depuis le site : stations, marchandises, routes, recettes,
   missions, rôles des pilotes.
 
@@ -363,10 +366,15 @@ src/
     discord.js           parcours OAuth2
     middleware.js        session, contrôle des rôles
   sync/
-    darkstat.js          relevé périodique de l'API
+    darkstat.js          relevé périodique des stocks
+    analyse.js           passe horaire : routes puis boucles
+    routes.js            meilleure base par mission
+    loops.js             assemblage des circuits
+    paths.js             temps de vol darkstat, groupés et mis en cache
   services/
     stock.js             lecture des soutes
     missions.js          ouverture auto, prise, livraison, classement
+    loops.js             circuits mis à l'échelle du vaisseau du pilote
     recipeImport.js      import du fichier de recettes Discovery
     events.js            diffusion temps réel
   routes/

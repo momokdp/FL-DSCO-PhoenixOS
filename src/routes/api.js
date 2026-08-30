@@ -7,6 +7,7 @@ import {
   myClaims, leaderboard, refreshAutoMissions, claimHistory, cancelDelivery, monthlyFunds,
 } from '../services/missions.js';
 import { subscribe, broadcast } from '../services/events.js';
+import { listLoops, setShip } from '../services/loops.js';
 
 export const apiRouter = express.Router();
 
@@ -114,6 +115,38 @@ apiRouter.get('/routes', requireAuth, (req, res) => {
     WHERE r.active = 1
     ORDER BY r.auto, dst.sort_order, i.name
   `).all());
+});
+
+// ----------------------------------------------------- boucles de trade
+//
+// Les circuits sont calculés à l'heure par le worker ; cet appel ne fait
+// que les mettre à l'échelle du vaisseau du pilote. Aucun appel à darkstat
+// n'a lieu ici : un pilote qui ouvre l'écran ne doit pas attendre le
+// réseau, et n'a aucune raison de déclencher une charge sortante.
+
+apiRouter.get('/loops', requireAuth, (req, res) => {
+  res.json(listLoops({
+    user: req.user,
+    stationId: int(req.query.station),
+    // Le pilote peut simuler une autre cale sans toucher à son profil.
+    cargo: int(req.query.cargo),
+    shipClass: req.query.ship || null,
+  }));
+});
+
+/**
+ * Le pilote déclare son vaisseau.
+ *
+ * Fixer la cale par station serait faux pour quiconque ne vole pas le
+ * vaisseau supposé : un même pilote alterne transport et freighter d'un
+ * vol à l'autre. C'est donc lui qui la déclare, une fois.
+ */
+apiRouter.post('/me/ship', requireAuth, (req, res) => {
+  const result = setShip(req.user.id, {
+    cargo: req.body?.cargo,
+    shipClass: req.body?.shipClass,
+  });
+  res.json(result);
 });
 
 // ---------------------------------------------------------------- divers

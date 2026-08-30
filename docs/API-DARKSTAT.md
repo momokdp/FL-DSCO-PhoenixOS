@@ -102,22 +102,64 @@ Utile pour la géographie : `system_name`, `region_name`, `sector_coord`,
 `galaxy_pos` donne une distance approchée **sans aucun appel supplémentaire**.
 Suffisant pour écarter les boucles absurdes.
 
+**La réponse pèse 22,5 Mo** pour 137 systèmes : `Objs`, `Zones` et
+`Jumpholes` représentent la quasi-totalité du volume, alors que seuls
+`nickname`, `name`, `galaxy_pos` et `region` servent ici. Les 137 systèmes
+portent tous un `galaxy_pos` exploitable (132 positions distinctes — des
+systèmes partagent une case). À ne charger qu'une fois, jamais dans une
+requête servie à un pilote.
+
 ---
 
 ## `/api/graph/paths` — temps de trajet  (POST)
 
 Renvoie le temps en **secondes** entre deux objets, pour Transport, Frigate
-et Freighter. Corps : un tableau de `appdata.GraphPath` — définition à
-récupérer avant usage :
+et Freighter. Mesuré le 2026-08-30 : les trois points ci-dessous corrigent
+ce qui était supposé jusqu'ici.
+
+**Le corps est un TABLEAU, et l'appel est groupé.** Ce n'est pas un POST par
+couple de bases : 400 couples sont partis en un seul appel, revenus en
+150 ms. Le coût réel est celui d'un appel, pas de N.
+
+```json
+[ { "from": "li01_01_base", "to": "br01_01_base" },
+  { "from": "li01_01_base", "to": "kadesh_orbital_city" } ]
+```
+
+Réponse, un objet par couple, dans l'ordre soumis :
+
+```json
+[ { "route": { "from": "li01_01_base", "to": "br01_01_base" },
+    "time": { "transport": 526, "frigate": 490, "freighter": 490 } },
+  { "route": { "from": "li01_01_base", "to": "base_inconnue" },
+    "error": "destination is not found" } ]
+```
+
+**Pièges avérés :**
+
+- Les définitions s'appellent `appdata.GraphPathReq`, `appdata.GraphPathsResp`
+  et `appdata.GraphPathTime`. **`appdata.GraphPath` n'existe pas** — la
+  chercher dans le swagger renvoie `undefined`.
+- Le swagger affirme qu'une base joueur se désigne par « Name in base64
+  encoding ». **C'est faux.** `kadesh_orbital_city` répond ; le base64 de
+  « Kadesh Orbital City » répond `destination is not found`. On passe le
+  `nickname` tel quel, PoB comme base PNJ.
+- **Environ 12 % des bases de `/api/npc_bases` sont absentes du graphe**
+  (37 sur 300 testées) : croiseurs de bataille, « Base Placeholder », bases
+  non amarrables. Elles renvoient `error` au lieu de `time`. Un couple en
+  erreur n'invalide pas le lot — le reste du tableau est exploitable.
+- L'échec courant est donc `error: "destination is not found"`, **pas** la
+  sentinelle. Aucune sentinelle n'est apparue sur 525 couples.
+
+Destination injoignable → temps = `9223372036854775807` (max int64).
+**Cette sentinelle doit être filtrée**, sinon elle domine tous les tris.
+Garder le filtre : non observée ne veut pas dire impossible.
 
 ```bash
 curl -s https://darkstat.dd84ai.com/swagger/doc.json | python3 -c "
 import sys,json; d=json.load(sys.stdin)
-print(json.dumps(d['definitions']['appdata.GraphPath'], indent=2))"
+print(json.dumps(d['definitions']['appdata.GraphPathReq'], indent=2))"
 ```
-
-Destination injoignable → temps = `9223372036854775807` (max int64).
-**Ce sentinelle doit être filtrée**, sinon elle domine tous les tris.
 
 ---
 

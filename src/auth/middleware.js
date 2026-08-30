@@ -46,5 +46,10 @@ export function publicUser(user) {
     callsign: user.callsign,
     avatar: user.avatar,
     role: user.role,
+    // Le vaisseau déclaré : les boucles de trade sont mises à son échelle.
+    // null tant que le pilote n'a rien renseigné — l'écran le signale au
+    // lieu de laisser croire à une estimation faite sur sa cale réelle.
+    cargoCapacity: user.cargo_capacity ?? null,
+    shipClass: user.ship_class ?? null,
   };
 }

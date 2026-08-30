@@ -1,56 +1,61 @@
-# Chantier suivant : boucles de trade
+# Chantier en cours
 
-## Le besoin
+## Boucles de trade — en place
 
-Une suggestion aller simple ne suffit pas : un pilote ne veut pas rentrer à
-vide. Il veut un circuit — acheter, livrer, recharger, revendre, boucler.
+Un pilote ne veut pas rentrer à vide. L'écran « Boucles » propose des
+circuits complets, classés au temps de vol réel.
 
-## Ce qui existe déjà
+### Ce qui a été construit
 
-- Les missions ouvertes, avec leur sens et leur quantité.
-- Pour chaque marchandise, la meilleure base à l'achat et à la revente,
-  avec faction, système et coordonnées de secteur (`src/sync/routes.js`).
-- Le volume unitaire de chaque marchandise, donc la capacité de cale.
+| Fichier | Rôle |
+|---|---|
+| `011-boucles-de-trade.sql` | `trade_loops`, `path_times`, cale du pilote, `stations.api_nickname` |
+| `src/sync/paths.js` | Client `/api/graph/paths` groupé, avec cache durable |
+| `src/sync/loops.js` | Assemblage et classement des circuits |
+| `src/sync/analyse.js` | Passe horaire : routes puis boucles, sur un seul relevé de marché |
+| `src/services/loops.js` | Mise à l'échelle du vaisseau du pilote, à la lecture |
+| `loopsView` | L'écran, en anglais et en français |
 
-## Ce qui manque : la distance
-
-Sans elle, on proposera des circuits traversant la galaxie pour cent
-crédits de marge.
-
-Deux sources, par ordre de coût croissant :
-
-1. **`/api/systems` → `galaxy_pos {X, Y}`.** Distance euclidienne sur la
-   carte galactique. Un seul appel, mis en cache indéfiniment — la
-   géographie ne bouge pas. Approximatif mais suffisant pour écarter
-   l'absurde. **À faire en premier.**
-
-2. **`/api/graph/paths`.** Temps réel de trajet en secondes, par type de
-   vaisseau. Plus juste, mais un POST par couple de bases. À réserver au
-   classement final d'une poignée de candidats.
-
-Récupérer d'abord la définition de `appdata.GraphPath` (voir
-`docs/API-DARKSTAT.md`), et **filtrer la sentinelle** `9223372036854775807`
-qui signale une destination injoignable.
-
-## Forme proposée
-
-Un circuit à trois segments :
+Un circuit reste la forme prévue :
 
 ```
-Base PNJ A  --(marchandise attendue)-->  Notre station S
-Notre station S  --(marchandise produite)-->  Base PNJ B
-B  --(retour)-->  A          si B et A sont proches
+Base A  --(marchandise attendue)-->  Notre station S
+S       --(marchandise produite)-->  Base B
+B       --(retour)--------------->   A
 ```
 
-Critère de tri : **points gagnés par unité de temps**, pas marge brute. Un
-pilote arbitre sur le temps passé, pas sur le crédit.
+Il naît de l'assemblage de **deux missions ouvertes sur la même station** :
+une d'import, une d'export. Sans les deux, pas de circuit.
 
-## Points à trancher avant de coder
+Quatre points étaient laissés à trancher ; ils le sont, et le pourquoi est
+consigné dans `docs/DECISIONS.md` :
 
-- Capacité de cale : demandée au pilote, ou fixée par station ?
-- Un circuit doit-il rester dans une région, ou traverser est-il acceptable ?
-- Les boucles sont-elles calculées d'avance (comme les routes, à l'heure)
-  ou à la demande du pilote ?
+- **Distance** — temps de vol réels (`/api/graph/paths`), pas `galaxy_pos`.
+  L'appel est groupé, donc moins cher que l'approximation.
+- **Cale** — déclarée par le pilote, retenue sur son profil.
+- **Portée** — la traversée des régions est permise ; le tri au temps
+  écarte de lui-même ce qui n'en vaut pas la peine.
+- **Cadence** — calcul horaire, dans la même passe que les routes.
+
+### Limites connues
+
+- **Les candidats sont choisis au prix, puis reclassés au temps.** On
+  retient les `LOOPS_OFFERS_PER_MISSION` offres les moins chères, et la
+  distance ne départage qu'ensuite. Une base proche mais septième au prix
+  n'est donc jamais vue. Monter le réglage élargit la fenêtre, au prix de
+  plus de couples à mesurer.
+- **Une station sans `api_nickname` n'apparaît dans aucun circuit.** Le
+  nickname est renseigné au relevé de stock : `npm run sync:now` suffit.
+- **`galaxy_pos` reste inexploité.** Il n'a plus d'emploi tant que
+  `/api/graph/paths` répond, mais reste le repli si cet endpoint disparaît.
+
+### Pour peupler tout de suite
+
+La passe automatique est horaire et différée de deux minutes au démarrage.
+
+```bash
+npm run analyse:now
+```
 
 ## Reste par ailleurs
 
@@ -59,3 +64,15 @@ pilote arbitre sur le temps passé, pas sur le crédit.
   (`/api/admin/factions/blocked`), écran absent.
 - Notification Discord à l'ouverture d'une mission critique.
 - Historique de stock dans la durée, pour repérer ce qui se vide vite.
+- **Débordement horizontal sur mobile.** À 375 px de large, la coque
+  déborde (484 px avant les boucles, 459 px après) : la barre supérieure
+  et le rail de navigation ne tiennent pas. Antérieur aux boucles, et
+  indépendant d'elles.
+
+## Pistes pour les boucles
+
+- Enchaîner les circuits entre eux, pour une soirée entière plutôt qu'un vol.
+- Tenir compte du stock réel de la base fournisseuse : `quantite` est déjà
+  normalisée dans les offres, mais n'entre pas encore dans le calcul.
+- Choisir les candidats sur une combinaison prix / distance plutôt que sur
+  le prix seul, ce qui lèverait la première limite ci-dessus.

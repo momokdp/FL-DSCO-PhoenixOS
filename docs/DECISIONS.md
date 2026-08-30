@@ -89,3 +89,102 @@ un navigateur français : l'escadrille est internationale.
 
 **La console de gestion n'est pas encore traduite.** Le mécanisme est en
 place, il reste à étendre le dictionnaire.
+
+## La distance se mesure, elle ne s'approxime pas
+
+Le plan initial classait `/api/systems` → `galaxy_pos` en premier et
+`/api/graph/paths` en second, au motif que le second coûtait « un POST par
+couple de bases ».
+
+**La prémisse était fausse.** `/api/graph/paths` prend un TABLEAU de
+couples : 400 couples partent en un appel et reviennent en 150 ms. Les
+temps de vol réels coûtent donc *moins* que l'approximation euclidienne,
+qui exigeait de télécharger les 22,5 Mo de `/api/systems`.
+
+On mesure donc, et `galaxy_pos` reste inutilisé. Voir `docs/API-DARKSTAT.md`
+pour les trois mensonges du swagger sur cet endpoint.
+
+## Les circuits se classent au temps, pas à la marge
+
+`points ÷ seconde`, jamais la marge brute. Un pilote arbitre sur le temps
+qu'il y passe.
+
+C'est ce qui rend inutile toute règle interdisant de changer de région : un
+circuit qui traverse la galaxie pour trois points s'élimine de lui-même. On
+n'a donc **aucun garde-fou géographique**, et il ne faut pas en ajouter —
+ce serait écarter les longs trajets qui valent réellement le détour.
+
+**Conséquence à connaître :** les points valent `quantité × volume × primes`
+et ne dépendent pas du prix. Le prix ne joue donc sur aucun classement. Il
+reste affiché parce qu'il touche la bourse du pilote, jamais sa paye.
+
+## La cale appartient au pilote, pas à la station
+
+Une capacité fixée par station serait fausse pour quiconque ne vole pas le
+vaisseau supposé : un même pilote alterne transport et cargo d'un vol à
+l'autre. Il la déclare une fois, elle vit sur son profil (`users.cargo_capacity`,
+`users.ship_class`).
+
+D'où la règle : **`trade_loops` ne stocke ni quantités ni points.** Ils
+dépendent de qui regarde. Seules la topologie du circuit et son économie
+unitaire sont figées par le calcul horaire ; `src/services/loops.js` refait
+les chiffres à la lecture. Les stocker aurait imposé une cale unique à toute
+l'escadrille.
+
+Les temps de trajet ne sont pas recopiés non plus : ils vivent dans
+`path_times`, relus par jointure. Les dupliquer aurait obligé à choisir un
+type de vaisseau au moment du calcul, alors que le pilote choisit le sien à
+la lecture.
+
+## Routes et boucles dans une seule passe
+
+Les deux lisent le même marché à la même cadence. Les faire tourner
+séparément doublait les appels à darkstat pour un résultat identique.
+
+La passe vit dans `src/sync/analyse.js`, distincte des deux modules qu'elle
+enchaîne : `loops.js` lit déjà le marché via `routes.js`, et loger
+l'ordonnancement dans l'un ou l'autre formait un cycle d'imports.
+
+## `api_name` et `api_nickname` ne sont pas interchangeables
+
+Le rapprochement des stocks tolère l'un ou l'autre. `/api/graph/paths`
+n'accepte que le **nickname** : « Kadesh Orbital City » y est refusé,
+`kadesh_orbital_city` passe.
+
+`stations.api_nickname` est donc renseigné au relevé de stock et tenu
+aligné sur l'API. Contrairement au système, ce n'est pas un champ qu'un
+officier corrige. Une station sans nickname n'entre dans aucun circuit.
+
+## `path_times` retient aussi les échecs
+
+Environ 12 % des bases PNJ sont absentes du graphe de darkstat — croiseurs
+de bataille, « Base Placeholder », bases non amarrables. Les redemander à
+chaque passe serait perdu d'avance : `reachable = 0` les marque.
+
+En revanche, une **absence de réponse** n'est jamais mise en cache. Elle
+peut venir d'un appel échoué, et la retenir condamnerait des bases valides
+sur une simple panne réseau.
+
+## Aucun `db.prepare` au niveau module
+
+`server.js` appelle `migrate()` dans son corps, mais **les imports ESM sont
+tous évalués avant**. Une requête préparée au chargement d'un module
+s'exécute donc contre le schéma d'AVANT la migration.
+
+Sur une base neuve, rien ne se voit. Sur une base déjà déployée, le serveur
+meurt sur « no such table » **sans jamais atteindre la migration censée
+créer la table** — une panne dont on ne sort pas en redémarrant.
+
+**C'est arrivé** avec `path_times` et `trade_loops` en 011. Les requêtes y
+sont désormais préparées à la première utilisation. C'est la règle partout :
+`stock.js`, `missions.js` et `routes.js` préparent tous à l'intérieur des
+fonctions.
+
+## SQLite ne lie pas les booléens
+
+`better-sqlite3` refuse `true` / `false` en paramètre, au même titre que
+node:sqlite. Un booléen doit devenir `1` / `0` avant d'atteindre la base.
+
+**C'est arrivé** sur `path_times.reachable`, écrit directement depuis
+l'objet rendu à l'appelant. La conversion se fait maintenant au moment de
+l'écriture, et la valeur reste un booléen côté JavaScript.

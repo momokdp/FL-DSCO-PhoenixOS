@@ -3,6 +3,7 @@ import { db, audit, nowSql, getSetting, setSetting } from '../db/index.js';
 import { requireRole } from '../auth/middleware.js';
 import { syncNow, isSyncRunning } from '../sync/darkstat.js';
 import { analyserRoutes } from '../sync/routes.js';
+import { analyserMarche } from '../sync/analyse.js';
 import { broadcast } from '../services/events.js';
 import { importRecipesFromConfig } from '../services/recipeImport.js';
 import { config } from '../config.js';
@@ -151,6 +152,25 @@ adminRouter.post('/routes/analyze', officer, async (req, res) => {
     if (!r.ok) return res.status(502).json({ error: r.error });
     audit(req.user.id, 'routes.analyzed', 'routes', null, r);
     res.json(r);
+  } catch (err) {
+    res.status(500).json({ error: `Analyse impossible : ${err.message}` });
+  }
+});
+
+// ------------------------------------------------- boucles de trade
+//
+// Routes et boucles lisent le même marché : les relancer ensemble évite un
+// second aller-retour vers darkstat pour un résultat identique. C'est la
+// même passe que celle du worker horaire.
+
+adminRouter.post('/loops/analyze', officer, async (req, res) => {
+  try {
+    const bilan = await analyserMarche();
+    if (bilan.boucles && !bilan.boucles.ok) {
+      return res.status(502).json({ error: bilan.boucles.error });
+    }
+    audit(req.user.id, 'loops.analyzed', 'trade_loops', null, bilan.boucles);
+    res.json({ ok: true, ...bilan });
   } catch (err) {
     res.status(500).json({ error: `Analyse impossible : ${err.message}` });
   }

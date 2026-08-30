@@ -56,6 +56,38 @@ export const config = {
     // d'heure pour un résultat quasi identique.
     routesIntervalMs: Number(process.env.ROUTES_INTERVAL_MINUTES || 60) * 60 * 1000,
     timeoutMs: Number(process.env.SYNC_TIMEOUT_MS || 20000),
+
+    // /api/graph/paths accepte un tableau de couples : 400 couples reviennent
+    // en une fraction de seconde. Interroger couple par couple rendrait la
+    // mesure du temps de trajet trop chère pour servir au classement.
+    pathsBatchSize: Number(process.env.PATHS_BATCH_SIZE || 400),
+
+    // La carte du jeu ne bouge pas : un temps mesuré reste valable jusqu'à
+    // ce que le serveur ouvre un nouveau passage. On réinterroge malgré
+    // tout au bout d'un mois, pour ne pas figer une erreur indéfiniment.
+    pathsMaxAgeDays: Number(process.env.PATHS_MAX_AGE_DAYS || 30),
+  },
+
+  // ------------------------------------------------------ boucles de trade
+  loops: {
+    // Cale servant à classer les circuits au moment du calcul. Le pilote
+    // déclare la sienne et l'écran refait le score à sa mesure ; cette
+    // valeur ne sert qu'à retenir les meilleurs candidats en amont.
+    refCargo: Number(process.env.LOOPS_REF_CARGO || 5000),
+
+    // Nombre d'offres retenues par mission. La moins chère n'est pas
+    // toujours la meilleure une fois le trajet compté : il faut plusieurs
+    // candidats pour que la distance ait son mot à dire.
+    offresParMission: Number(process.env.LOOPS_OFFERS_PER_MISSION || 5),
+
+    // Segments conservés de chaque côté avant d'éprouver les couples.
+    // Mesurer le retour de tous les B vers tous les A coûterait le carré du
+    // nombre de candidats ; on n'éprouve que les meilleurs de chaque bord.
+    segmentsParBord: Number(process.env.LOOPS_LEGS_PER_SIDE || 8),
+
+    // Circuits gardés par station. Au-delà, l'écran devient un catalogue
+    // et le pilote ne choisit plus.
+    parStation: Number(process.env.LOOPS_PER_STATION || 12),
   },
 
   // Fichier de recettes Discovery, importable depuis l'administration
