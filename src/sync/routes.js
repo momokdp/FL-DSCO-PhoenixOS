@@ -79,7 +79,7 @@ export function indexerMarche(payload) {
 
   for (const entree of lignes) {
     const cle = champ(entree, 'nickname', 'commodity_nickname', 'commodity');
-    const bases = champ(entree, 'bases', 'markets', 'sold_at');
+    const bases = champ(entree, 'market_goods', 'bases', 'markets', 'sold_at');
 
     if (cle && Array.isArray(bases)) {
       const offres = bases.map(normaliserOffre).filter(Boolean);
@@ -118,37 +118,66 @@ export function indexerMarche(payload) {
 
 /* ------------------------------------------------------------ récupération */
 
-async function lireMarche() {
-  const cibles = ['/api/commodities', '/api/pob_goods'];
+/**
+ * Interroge le marché.
+ *
+ * `/api/commodities` est un POST : sans « include_market_goods », la
+ * réponse ne porte que les meilleurs prix, sans nom de base. On restreint
+ * aussi la demande aux marchandises réellement utiles — le jeu en compte
+ * plusieurs centaines, et la charge utile grossit vite avec les marchés.
+ */
+async function lireMarche(nicknames) {
   const index = new Map();
 
-  for (const chemin of cibles) {
-    try {
-      const ctrl = new AbortController();
-      const minuteur = setTimeout(() => ctrl.abort(), config.darkstat.timeoutMs ?? 20000);
-      const res = await fetch(`${config.darkstat.baseUrl}${chemin}`, { signal: ctrl.signal });
-      clearTimeout(minuteur);
-      if (!res.ok) continue;
-
-      for (const [cle, offres] of indexerMarche(await res.json())) {
-        if (!index.has(cle)) index.set(cle, []);
-        index.get(cle).push(...offres);
-      }
-    } catch {
-      // Un endpoint indisponible ne doit pas empêcher l'autre de servir.
+  const fusionner = (payload) => {
+    for (const [cle, offres] of indexerMarche(payload)) {
+      if (!index.has(cle)) index.set(cle, []);
+      index.get(cle).push(...offres);
     }
-  }
+  };
+
+  const appeler = async (chemin, options) => {
+    const ctrl = new AbortController();
+    const minuteur = setTimeout(() => ctrl.abort(), config.darkstat.timeoutMs ?? 20000);
+    try {
+      const res = await fetch(`${config.darkstat.baseUrl}${chemin}`, { ...options, signal: ctrl.signal });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;                 // un endpoint muet ne bloque pas les autres
+    } finally {
+      clearTimeout(minuteur);
+    }
+  };
+
+  const commodities = await appeler('/api/commodities', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      include_market_goods: 'true',
+      filter_to_useful: false,
+      ...(nicknames?.length ? { filter_nicknames: nicknames } : {}),
+    }),
+  });
+  if (commodities) fusionner(commodities);
+
+  const pob = await appeler('/api/pob_goods', { method: 'GET' });
+  if (pob) fusionner(pob);
+
   return index;
 }
 
 /* --------------------------------------------------------------- calcul */
 
 /** Meilleure offre pour un sens donné, hors factions interdites. */
-export function meilleureOffre(offres, direction, interdites, nôtres = new Set()) {
+export function meilleureOffre(offres, direction, interdites, exclure = null) {
+  const aEviter = exclure ? String(exclure).toLowerCase() : null;
+
   const utiles = (offres || []).filter((o) => {
-    // On n'écarte que NOS stations : proposer d'aller chercher chez soi
-    // n'a pas de sens. La base d'un autre joueur reste un partenaire.
-    if (o.baseNickname && nôtres.has(String(o.baseNickname).toLowerCase())) return false;
+    // Seule la station de destination est écartée : une route vers
+    // elle-même n'a pas de sens. Nos autres stations restent des sources
+    // et des débouchés légitimes — c'est même tout l'intérêt du réseau.
+    if (aEviter && o.baseNickname && String(o.baseNickname).toLowerCase() === aEviter) return false;
     if (o.faction && interdites.has(String(o.faction).toLowerCase())) return false;
     return direction === 'import'
       ? o.prixAchat != null && o.prixAchat > 0 && o.quantite > 0
@@ -177,11 +206,9 @@ export const analyserRoutes = async () => {
     return { ok: false, error: 'Aucune donnée de marché exploitable.' };
   }
 
-  // Nos propres stations, par leur nom API : elles ne peuvent pas être
-  // proposées comme source ou destination d'elles-mêmes.
-  const nôtres = new Set(
-    db.prepare('SELECT api_name FROM stations WHERE api_name IS NOT NULL').all()
-      .map((r) => String(r.api_name).toLowerCase())
+  // Nom API de chaque station, pour écarter la route vers soi-même.
+  const nomApi = new Map(
+    db.prepare('SELECT id, api_name FROM stations').all().map((r) => [r.id, r.api_name])
   );
 
   const interdites = new Set(
@@ -222,7 +249,8 @@ export const analyserRoutes = async () => {
     db.prepare(`DELETE FROM routes WHERE auto = 1`).run();
 
     for (const b of besoins) {
-      const offre = meilleureOffre(marche.get(b.commodity_id), b.direction, interdites, nôtres);
+      const offre = meilleureOffre(
+        marche.get(b.commodity_id), b.direction, interdites, nomApi.get(b.station_id));
       if (!offre) continue;
 
       poser.run({
