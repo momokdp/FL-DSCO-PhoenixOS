@@ -41,13 +41,25 @@ const nombre = (v) => {
  * Renvoie null si l'entrée n'est pas exploitable.
  */
 function normaliserOffre(brut) {
+  // Les entrées de market_goods sont plates : pas d'objet « base » imbriqué,
+  // les champs de la base portent le préfixe base_. On accepte tout de même
+  // la forme imbriquée, utilisée par /api/pob_goods.
   const base = champ(brut, 'base', 'station') || brut;
+  const shop = champ(brut, 'shop_item', 'market_good') || brut;
 
-  const nickname = champ(base, 'nickname', 'base_nickname');
-  const name = champ(base, 'name', 'base_name');
+  const nickname = champ(base, 'base_nickname', 'nickname');
+  const name = champ(base, 'base_name', 'name');
   if (!name && !nickname) return null;
 
-  const shop = champ(brut, 'shop_item', 'market_good') || brut;
+  // Deux prix, deux sens. « price_base_sells_for » est ce que la base
+  // réclame quand elle nous vend ; « price_base_buys_for » ce qu'elle
+  // consent à nous payer. Les confondre inversait toute l'analyse.
+  const prixAchat = nombre(champ(shop, 'price_base_sells_for', 'price', 'price_to_buy'));
+  const prixVente = nombre(champ(shop, 'price_base_buys_for', 'sell_price', 'price_to_sell'));
+
+  // Un prix affiché ne vaut rien si la base ne fait pas l'opération.
+  const vend = champ(shop, 'base_sells', 'is_selling');
+  const achete = champ(shop, 'base_buys', 'is_buying');
 
   return {
     baseNickname: nickname ? String(nickname) : null,
@@ -55,15 +67,14 @@ function normaliserOffre(brut) {
     faction: champ(base, 'faction_name', 'faction') ?? null,
     system: champ(base, 'system_name', 'system') ?? null,
     secteur: champ(base, 'sector_coord', 'sector') ?? null,
-    estPob: Boolean(champ(base, 'IsPob', 'is_pob')),
+    region: champ(base, 'region_name') ?? null,
+    estPob: Boolean(champ(base, 'PoB', 'IsPob', 'is_pob')),
 
-    // Prix auquel la base VEND au joueur, puis auquel elle lui ACHÈTE.
-    prixAchat: nombre(champ(shop, 'price', 'price_to_buy', 'buy_price')),
-    prixVente: nombre(champ(shop, 'sell_price', 'price_to_sell')),
+    prixAchat,
+    prixVente,
     quantite: nombre(champ(shop, 'quantity', 'stock')) ?? 0,
-
-    vend: champ(shop, 'is_selling', 'any_base_sells') ?? null,
-    achete: champ(shop, 'is_buying', 'any_base_buys') ?? null,
+    vend: vend === undefined ? null : Boolean(vend),
+    achete: achete === undefined ? null : Boolean(achete),
   };
 }
 
@@ -189,9 +200,14 @@ export function meilleureOffre(offres, direction, interdites, exclure = null) {
     // et des débouchés légitimes — c'est même tout l'intérêt du réseau.
     if (aEviter && o.baseNickname && String(o.baseNickname).toLowerCase() === aEviter) return false;
     if (o.faction && interdites.has(String(o.faction).toLowerCase())) return false;
-    return direction === 'import'
-      ? o.prixAchat != null && o.prixAchat > 0 && o.quantite > 0
-      : o.prixVente != null && o.prixVente > 0;
+    // « base_sells » à false signifie que la base n'écoule pas cette
+    // marchandise : son prix affiché est théorique et ne sert à rien.
+    if (direction === 'import') {
+      if (o.vend === false) return false;
+      return o.prixAchat != null && o.prixAchat > 0;
+    }
+    if (o.achete === false) return false;
+    return o.prixVente != null && o.prixVente > 0;
   });
 
   if (!utiles.length) return null;
