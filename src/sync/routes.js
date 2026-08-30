@@ -87,6 +87,25 @@ export function indexerMarche(payload) {
       continue;
     }
 
+    // Forme observée sur /api/commodities : les meilleurs prix sont donnés
+    // directement, mais « market_goods » est nul — donc aucune base nommée.
+    // L'information économique reste utile même sans destination.
+    const achat = nombre(champ(entree, 'price_best_base_sells_for'));
+    const vente = nombre(champ(entree, 'price_best_base_buys_for'));
+    if (cle && (achat != null || vente != null) && !Array.isArray(bases)) {
+      if (!index.has(String(cle))) index.set(String(cle), []);
+      index.get(String(cle)).push({
+        baseNickname: null,
+        baseName: null,
+        faction: null, system: null, secteur: null,
+        prixAchat: achat, prixVente: vente,
+        marge: nombre(champ(entree, 'proffit_margin')),
+        quantite: 1,
+        agrege: true,
+      });
+      continue;
+    }
+
     // Forme plate : une offre par ligne.
     const offre = normaliserOffre(entree);
     if (cle && offre) {
@@ -106,8 +125,8 @@ async function lireMarche() {
   for (const chemin of cibles) {
     try {
       const ctrl = new AbortController();
-      const minuteur = setTimeout(() => ctrl.abort(), config.sync.timeoutMs ?? 20000);
-      const res = await fetch(`${config.darkstat.url}${chemin}`, { signal: ctrl.signal });
+      const minuteur = setTimeout(() => ctrl.abort(), config.darkstat.timeoutMs ?? 20000);
+      const res = await fetch(`${config.darkstat.baseUrl}${chemin}`, { signal: ctrl.signal });
       clearTimeout(minuteur);
       if (!res.ok) continue;
 
@@ -125,9 +144,11 @@ async function lireMarche() {
 /* --------------------------------------------------------------- calcul */
 
 /** Meilleure offre pour un sens donné, hors factions interdites. */
-export function meilleureOffre(offres, direction, interdites) {
+export function meilleureOffre(offres, direction, interdites, nôtres = new Set()) {
   const utiles = (offres || []).filter((o) => {
-    if (o.estPob) return false;                      // nos propres bases
+    // On n'écarte que NOS stations : proposer d'aller chercher chez soi
+    // n'a pas de sens. La base d'un autre joueur reste un partenaire.
+    if (o.baseNickname && nôtres.has(String(o.baseNickname).toLowerCase())) return false;
     if (o.faction && interdites.has(String(o.faction).toLowerCase())) return false;
     return direction === 'import'
       ? o.prixAchat != null && o.prixAchat > 0 && o.quantite > 0
@@ -137,9 +158,15 @@ export function meilleureOffre(offres, direction, interdites) {
   if (!utiles.length) return null;
 
   // Import : on veut acheter au moins cher. Export : vendre au plus cher.
-  utiles.sort((a, b) => direction === 'import'
-    ? a.prixAchat - b.prixAchat
-    : b.prixVente - a.prixVente);
+  // À prix comparable, une offre localisée vaut mieux qu'un prix agrégé
+  // sans nom de base : le pilote a besoin d'une destination.
+  utiles.sort((a, b) => {
+    const parPrix = direction === 'import'
+      ? a.prixAchat - b.prixAchat
+      : b.prixVente - a.prixVente;
+    if (parPrix !== 0) return parPrix;
+    return (a.agrege ? 1 : 0) - (b.agrege ? 1 : 0);
+  });
 
   return utiles[0];
 }
@@ -149,6 +176,13 @@ export const analyserRoutes = async () => {
   if (!marche.size) {
     return { ok: false, error: 'Aucune donnée de marché exploitable.' };
   }
+
+  // Nos propres stations, par leur nom API : elles ne peuvent pas être
+  // proposées comme source ou destination d'elles-mêmes.
+  const nôtres = new Set(
+    db.prepare('SELECT api_name FROM stations WHERE api_name IS NOT NULL').all()
+      .map((r) => String(r.api_name).toLowerCase())
+  );
 
   const interdites = new Set(
     db.prepare('SELECT faction_name FROM blocked_factions').all()
@@ -167,10 +201,10 @@ export const analyserRoutes = async () => {
   const poser = db.prepare(`
     INSERT INTO routes
       (item_id, dest_id, direction, source_label, base_nickname, faction_name,
-       system_name, sector_coord, price, auto, priority, computed_at)
+       system_name, sector_coord, price, margin, auto, priority, computed_at)
     VALUES
       (@item_id, @dest_id, @direction, @source_label, @base_nickname, @faction_name,
-       @system_name, @sector_coord, @price, 1, 0, @computed_at)
+       @system_name, @sector_coord, @price, @margin, 1, 0, @computed_at)
     ON CONFLICT(item_id, dest_id, direction, base_nickname) WHERE auto = 1
       DO UPDATE SET
         source_label = excluded.source_label,
@@ -178,6 +212,7 @@ export const analyserRoutes = async () => {
         system_name  = excluded.system_name,
         sector_coord = excluded.sector_coord,
         price        = excluded.price,
+        margin       = excluded.margin,
         computed_at  = excluded.computed_at
   `);
 
@@ -187,19 +222,20 @@ export const analyserRoutes = async () => {
     db.prepare(`DELETE FROM routes WHERE auto = 1`).run();
 
     for (const b of besoins) {
-      const offre = meilleureOffre(marche.get(b.commodity_id), b.direction, interdites);
+      const offre = meilleureOffre(marche.get(b.commodity_id), b.direction, interdites, nôtres);
       if (!offre) continue;
 
       poser.run({
         item_id: b.item_id,
         dest_id: b.station_id,
         direction: b.direction,
-        source_label: offre.baseName,
+        source_label: offre.baseName,   // null si le prix vient d'un agrégat
         base_nickname: offre.baseNickname,
         faction_name: offre.faction,
         system_name: offre.system,
         sector_coord: offre.secteur,
         price: b.direction === 'import' ? offre.prixAchat : offre.prixVente,
+        margin: offre.marge ?? null,
         computed_at: stamp,
       });
       trouvees++;
@@ -210,3 +246,40 @@ export const analyserRoutes = async () => {
   broadcast('routes:changed', { count: trouvees });
   return { ok: true, analysees: besoins.length, trouvees, ecartees: interdites.size };
 };
+
+
+/* ------------------------------------------------------- planification */
+
+let minuteur = null;
+
+/**
+ * Analyse périodique des routes.
+ *
+ * Volontairement découplée du relevé des stocks : les prix bougent à
+ * l'échelle de l'heure, pas du quart d'heure. Le premier passage est
+ * différé de deux minutes pour laisser un relevé de stock arriver — sans
+ * missions ouvertes, l'analyse n'aurait rien à chercher.
+ */
+export function startRoutesWorker() {
+  const every = config.darkstat.routesIntervalMs;
+  if (!every || every < 60_000) return;
+
+  const passe = async () => {
+    try {
+      const r = await analyserRoutes();
+      if (r.ok) console.log(`[routes] ${r.trouvees}/${r.analysees} route(s) suggérée(s)`);
+      else console.warn(`[routes] ${r.error}`);
+    } catch (err) {
+      console.warn(`[routes] échec : ${err.message}`);
+    }
+  };
+
+  setTimeout(passe, 120_000);
+  minuteur = setInterval(passe, every);
+  console.log(`[routes] analyse toutes les ${Math.round(every / 60000)} min`);
+}
+
+export function stopRoutesWorker() {
+  if (minuteur) clearInterval(minuteur);
+  minuteur = null;
+}

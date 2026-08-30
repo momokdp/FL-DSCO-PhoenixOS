@@ -50,6 +50,11 @@ export const config = {
     baseUrl: process.env.DARKSTAT_URL || 'https://darkstat.dd84ai.com',
     pobsPath: '/api/pobs',
     intervalMs: Number(process.env.SYNC_INTERVAL_MINUTES || 10) * 60 * 1000,
+
+    // Les prix de marché évoluent bien plus lentement que les stocks : une
+    // analyse horaire suffit, et évite deux appels d'API tous les quarts
+    // d'heure pour un résultat quasi identique.
+    routesIntervalMs: Number(process.env.ROUTES_INTERVAL_MINUTES || 60) * 60 * 1000,
     timeoutMs: Number(process.env.SYNC_TIMEOUT_MS || 20000),
   },
 

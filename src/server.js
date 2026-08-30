@@ -12,6 +12,7 @@ import { loadUser, requireAuth, requireRole } from './auth/middleware.js';
 import { apiRouter } from './routes/api.js';
 import { adminRouter } from './routes/admin.js';
 import { startSyncWorker, stopSyncWorker } from './sync/darkstat.js';
+import { startRoutesWorker, stopRoutesWorker } from './sync/routes.js';
 import { refreshAutoMissions } from './services/missions.js';
 
 // Le serveur ne démarre pas sur une base dont le schéma n'est pas à jour :
@@ -112,6 +113,7 @@ const server = app.listen(config.port, config.host, () => {
   console.log(`  Base : ${config.dbFile}`);
   console.log(`  Écoute sur ${config.host}:${config.port}\n`);
   startSyncWorker();
+  startRoutesWorker();
   setInterval(() => { try { refreshAutoMissions(); } catch (e) { console.error('[missions]', e.message); } }, 120_000);
 });
 
@@ -119,6 +121,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {
     console.log('\nArrêt en cours…');
     stopSyncWorker();
+  stopRoutesWorker();
     server.close(() => { db.close(); process.exit(0); });
     setTimeout(() => process.exit(1), 5000);
   });
