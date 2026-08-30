@@ -237,6 +237,10 @@ async function thresholdsPane(ctx) {
     const masquer = h('input', { type: 'checkbox', name: 'is_hidden', checked: !!r.is_hidden });
     const prime = input({ type: 'number', name: 'risk_bonus', min: '0.1', max: '10', step: '0.1',
       class: 'input--num', value: r.risk_bonus ?? 1 });
+    const origine = input({ name: 'origin', value: r.origin || '',
+      placeholder: 'Base PNJ, système, autre station…' });
+    const destination = input({ name: 'destination', value: r.destination || '',
+      placeholder: 'Où revendre ou livrer…' });
 
     const valeurs = await modal({
       title: r.name,
@@ -253,6 +257,10 @@ async function thresholdsPane(ctx) {
           'Cochez pour une marchandise que la station produit : la mission s\'ouvrira ' +
           'quand le stock DÉPASSE le plafond, pour venir chercher le surplus. ' +
           'Décochée, la mission s\'ouvre quand le stock passe SOUS le seuil bas.'),
+        field('Où charger  (missions entrantes)', origine,
+          'Affiché au pilote sur chaque mission d\'approvisionnement de cette marchandise.'),
+        field('Où emmener  (missions sortantes)', destination,
+          'Affiché sur les missions d\'enlèvement : où revendre ou livrer.'),
         field('Prime de risque permanente', prime,
           'Multiplie les points de toute livraison de cette marchandise ici. ' +
           '1 = trajet ordinaire. Utilisez-la pour ce qui traverse un territoire ' +
@@ -271,6 +279,8 @@ async function thresholdsPane(ctx) {
           is_export: exporter.checked ? 1 : 0,
           is_hidden: masquer.checked ? 1 : 0,
           risk_bonus: Number(prime.value) || 1,
+          origin: origine.value.trim() || null,
+          destination: destination.value.trim() || null,
           note: note.value.trim() || null,
         }) },
       ],
@@ -291,7 +301,7 @@ async function thresholdsPane(ctx) {
     try {
       await put(`/admin/stations/${ctx.seuilStation}/thresholds/${r.item_id}`,
         { min_stock: null, max_stock: null, is_export: 0, is_hidden: 0,
-          risk_bonus: 1, note: null });
+          risk_bonus: 1, origin: null, destination: null, note: null });
       toast('Valeurs de l\'API rétablies.');
       charger();
     } catch (e) { notifyError(e); }

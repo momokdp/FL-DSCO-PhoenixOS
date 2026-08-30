@@ -419,6 +419,8 @@ adminRouter.put('/stations/:id/thresholds/:itemId', officer, (req, res) => {
     isExport: req.body.is_export,
     isHidden: req.body.is_hidden,
     riskBonus: req.body.risk_bonus,
+    origin: req.body.origin,
+    destination: req.body.destination,
     userId: req.user.id,
   });
   if (!result.ok) return res.status(400).json({ error: result.error });

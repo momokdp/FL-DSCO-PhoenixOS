@@ -847,3 +847,19 @@ a:hover { text-decoration: underline; }
   font-family: var(--display); font-size: .68rem;
   letter-spacing: .1em; font-weight: 700;
 }
+
+/* Deuxième point du trajet : d'où l'on charge, ou vers où l'on emmène.
+   Souligné quand il manque, car un pilote sans destination est bloqué. */
+.mission__leg {
+  margin: .3rem 0 0; font-size: .82rem;
+  display: flex; align-items: baseline; gap: .4rem; flex-wrap: wrap;
+}
+.mission__legLabel {
+  font-family: var(--display); font-size: .62rem; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--dim);
+}
+.mission__leg b { color: var(--ion); font-weight: 600; }
+.mission__leg.is-missing b {
+  color: var(--dim); font-style: italic; font-weight: 400;
+  border-bottom: 1px dotted var(--seam);
+}

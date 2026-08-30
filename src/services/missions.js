@@ -113,6 +113,10 @@ export function listOpenMissions({ stationId = null, direction = null, userId = 
       COALESCE(v.min_stock, 0) AS min_stock,
       COALESCE(v.max_stock, 0) AS max_stock,
       COALESCE(v.risk_bonus, 1) AS risk_bonus,
+      -- Une mission créée à la main garde son origine propre ; sinon on
+      -- reprend le réglage permanent de la marchandise.
+      COALESCE(NULLIF(m.origin, ''), v.origin) AS origin_hint,
+      v.destination AS destination_hint,
       (SELECT COALESCE(SUM(c.pledged_qty), 0) FROM mission_claims c
         WHERE c.mission_id = m.id AND c.status = 'in_progress') AS pledged_qty,
       (SELECT COUNT(*) FROM mission_claims c
@@ -288,6 +292,10 @@ export function myClaims(userId) {
     SELECT c.id AS claim_id, c.pledged_qty, c.claimed_at,
            i.volume AS item_volume, m.reward_multiplier,
            COALESCE(v.risk_bonus, 1) AS risk_bonus,
+      -- Une mission créée à la main garde son origine propre ; sinon on
+      -- reprend le réglage permanent de la marchandise.
+      COALESCE(NULLIF(m.origin, ''), v.origin) AS origin_hint,
+      v.destination AS destination_hint,
            m.id AS mission_id, m.direction, m.target_qty, m.origin,
            st.name AS station_name, st.code AS station_code,
            i.name AS item_name, i.vendor_hint

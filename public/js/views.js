@@ -127,9 +127,9 @@ function missionCard(m, ctx) {
       h('div.mission__lead',
         h('h3.mission__item', m.item_name),
         h('p.mission__where',
-          `${t(`dir.${m.direction}`)} `, h('b', m.station_name),
-          m.origin ? h('em', ` · ${t('mission.loadAt')} ${m.origin}`)
-            : (m.vendor_hint ? h('em', ` · ${m.vendor_hint}`) : null)),
+          `${t(`dir.${m.direction}`)} `, h('b', m.station_name)),
+        // L'autre bout du trajet : sans lui, le pilote ne sait pas où aller.
+        legRoute(m),
       ),
 
       // Le chiffre que le pilote cherche vraiment : combien reste-t-il.
@@ -161,6 +161,24 @@ function missionCard(m, ctx) {
       : h('div.crew.crew__none', t('mission.nobody')),
 
     actions,
+  );
+}
+
+/**
+ * Deuxième point du trajet.
+ *
+ * Un import se charge quelque part avant d'être apporté ; un export doit
+ * être emmené quelque part. Le libellé suit donc le sens de la mission.
+ */
+function legRoute(m) {
+  const lieu = m.direction === 'export'
+    ? (m.destination_hint || m.vendor_hint)
+    : (m.origin_hint || m.vendor_hint);
+  const label = m.direction === 'export' ? t('mission.sellAt') : t('mission.loadAt');
+
+  return h('p.mission__leg', { class: lieu ? null : 'is-missing' },
+    h('span.mission__legLabel', label),
+    h('b', lieu || t('mission.noRoute')),
   );
 }
 
