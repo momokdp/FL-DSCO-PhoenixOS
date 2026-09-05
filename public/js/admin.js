@@ -79,18 +79,65 @@ const editBtn = (onClick) =>
 const deleteBtn = (onClick) =>
   h('button.btn.btn--ghost.btn--sm', { type: 'button', onClick }, 'Supprimer');
 
-/** Ouvre un formulaire modal et renvoie les valeurs, ou null si annulé. */
-function formModal(title, buildFields, { submitLabel = 'Enregistrer', width = null } = {}) {
+/* --------------------------------------------------- choix marchandise */
+
+/**
+ * Les marchandises ne se saisissent jamais à la main.
+ *
+ * Leur nom appartient à l'API darkstat : c'est lui qui rattache une mission
+ * au relevé de stock de la station. Un champ libre laissait passer les
+ * variantes de casse, les fautes de frappe et les noms inventés, qui
+ * créaient une fiche fantôme sans stock. On propose donc la liste connue,
+ * et rien d'autre ; elle s'enrichit au relevé, ou depuis l'onglet
+ * Marchandises.
+ */
+const listeMarchandises = () => get('/admin/items?all=1');
+
+const AIDE_MARCHANDISE =
+  'Liste tenue par l\'API darkstat. Pour en ajouter une, passez par l\'onglet Marchandises.';
+
+function itemSelect(items, props = {}) {
+  return select([
+    { value: '', label: '— choisir une marchandise —' },
+    ...items.map((it) => ({ value: it.id, label: it.name })),
+  ], { name: 'item_id', ...props });
+}
+
+/** Vrai si la liste est vide : sans elle, aucun formulaire n'a de sens. */
+function refuserSansMarchandise(items) {
+  if (items.length) return false;
+  toast('Aucune marchandise connue. Lancez une synchronisation ou ajoutez-en '
+    + 'une depuis l\'onglet Marchandises.', 'err');
+  return true;
+}
+
+/**
+ * Ouvre un formulaire modal et renvoie les valeurs, ou null si annulé.
+ *
+ * `validate` renvoie un message quand la saisie ne va pas : la modale reste
+ * alors ouverte. Signaler après fermeture ferait recommencer tout le
+ * formulaire pour un menu resté sur son choix vide.
+ */
+function formModal(title, buildFields,
+  { submitLabel = 'Enregistrer', width = null, validate = null } = {}) {
   let form;
   return modal({
     title, width,
     build: () => (form = h('div.form', buildFields())),
     actions: [
       { label: 'Annuler', value: null },
-      { label: submitLabel, variant: 'primary', onClick: (close) => close(readForm(form)) },
+      { label: submitLabel, variant: 'primary', onClick: (close) => {
+        const values = readForm(form);
+        const erreur = validate ? validate(values) : null;
+        if (erreur) return toast(erreur, 'err');
+        close(values);
+      } },
     ],
   });
 }
+
+/** Refus commun aux formulaires dont la marchandise est obligatoire. */
+const exigerMarchandise = (v) => (v.item_id ? null : 'Choisissez la marchandise.');
 
 /* ============================================================ stations */
 
@@ -346,15 +393,17 @@ async function thresholdsPane(ctx) {
 /* ============================================================ missions */
 
 async function missionsPane(ctx) {
-  const [stations, missions] = await Promise.all([get('/stations'), get('/missions')]);
+  const [stations, missions, items] = await Promise.all([
+    get('/stations'), get('/missions'), listeMarchandises(),
+  ]);
   const manual = missions.filter((m) => !m.auto);
   const auto = missions.filter((m) => m.auto);
 
   const create = async () => {
+    if (refuserSansMarchandise(items)) return;
     const values = await formModal('Ouvrir une mission', () => [
       field('Station', select(stations.map((s) => ({ value: s.id, label: s.name })), { name: 'station_id' })),
-      field('Marchandise', input({ name: 'item_name', placeholder: 'Nom exact de la marchandise' }),
-        'Si elle n\'existe pas encore, elle sera créée automatiquement.'),
+      field('Marchandise', itemSelect(items), AIDE_MARCHANDISE),
       field('Sens', select([
         { value: 'import', label: 'Approvisionnement — livrer à la station' },
         { value: 'export', label: 'Enlèvement — retirer de la station' },
@@ -369,7 +418,7 @@ async function missionsPane(ctx) {
         min: '0.1', max: '10', step: '0.1', value: '1', class: 'input--num' }),
       'Multiplie les points gagnés. 1 = trajet ordinaire, 1.5 = passage exposé, ' +
       '2 = franchement dangereux. Figée à la livraison.'),
-    ], { submitLabel: 'Ouvrir la mission' });
+    ], { submitLabel: 'Ouvrir la mission', validate: exigerMarchandise });
     if (!values) return;
     try {
       await post('/admin/missions', values);
@@ -620,11 +669,14 @@ async function itemsPane(ctx) {
 /* ============================================================== routes */
 
 async function routesPane(ctx) {
-  const [routes, stations] = await Promise.all([get('/admin/routes'), get('/stations')]);
+  const [routes, stations, items] = await Promise.all([
+    get('/admin/routes'), get('/stations'), listeMarchandises(),
+  ]);
 
   const create = async () => {
+    if (refuserSansMarchandise(items)) return;
     const values = await formModal('Déclarer une route', () => [
-      field('Marchandise', input({ name: 'item_name' })),
+      field('Marchandise', itemSelect(items), AIDE_MARCHANDISE),
       field('Station de destination',
         select(stations.map((s) => ({ value: s.id, label: s.name })), { name: 'dest_id' })),
       field('Station d\'origine',
@@ -632,7 +684,7 @@ async function routesPane(ctx) {
           ...stations.map((s) => ({ value: s.id, label: s.name }))], { name: 'source_id' })),
       field('Origine hors faction', input({ name: 'source_label', placeholder: 'Base PNJ, système…' })),
       field('Priorité', input({ type: 'number', name: 'priority', value: 0, class: 'input--num' })),
-    ], { submitLabel: 'Déclarer' });
+    ], { submitLabel: 'Déclarer', validate: exigerMarchandise });
     if (!values) return;
     try { await post('/admin/routes', values); toast('Route déclarée.'); ctx.reload(); }
     catch (e) { notifyError(e); }
@@ -667,12 +719,18 @@ async function routesPane(ctx) {
 /* ============================================================ recettes */
 
 async function recipesPane(ctx) {
-  const [recipes, stations] = await Promise.all([get('/admin/recipes'), get('/stations')]);
+  const [recipes, stations, items] = await Promise.all([
+    get('/admin/recipes'), get('/stations'), listeMarchandises(),
+  ]);
 
   const edit = async (recipe = null) => {
+    if (refuserSansMarchandise(items)) return;
     const rows = h('div.comp-rows');
+    // Un composant enregistré avant que sa marchandise ne disparaisse
+    // n'est plus dans la liste : le menu retombe alors sur le choix vide
+    // plutôt que d'inventer une option, et la ligne se resaisit.
     const addRow = (comp = null) => rows.appendChild(h('div.comp-row',
-      input({ class: 'comp-name', placeholder: 'Composant', value: comp?.name || '' }),
+      itemSelect(items, { name: null, class: 'comp-item', value: comp?.item_id ?? '' }),
       input({ type: 'number', class: 'input--num comp-qty', placeholder: 'Qté', min: '1', value: comp?.quantity || '' }),
       h('button.btn.btn--ghost.btn--sm', { type: 'button', onClick: (e) => e.target.parentElement.remove() }, '×'),
     ));
@@ -699,10 +757,16 @@ async function recipesPane(ctx) {
         { label: 'Annuler', value: null },
         { label: 'Enregistrer', variant: 'primary', onClick: (close) => {
           const base = readForm(form);
-          base.components = [...rows.querySelectorAll('.comp-row')].map((r) => ({
-            name: r.querySelector('.comp-name').value.trim(),
+          const saisies = [...rows.querySelectorAll('.comp-row')].map((r) => ({
+            item_id: Number(r.querySelector('.comp-item').value) || 0,
             quantity: Number(r.querySelector('.comp-qty').value) || 0,
-          })).filter((c) => c.name && c.quantity > 0);
+          }));
+          // Une ligne chiffrée mais sans marchandise part d'un menu resté
+          // sur le choix vide : l'écarter en silence amputerait la recette.
+          if (saisies.some((c) => c.quantity > 0 && !c.item_id)) {
+            return toast('Un composant est resté sans marchandise.', 'err');
+          }
+          base.components = saisies.filter((c) => c.item_id && c.quantity > 0);
           close(base);
         } },
       ],

@@ -22,14 +22,37 @@ const bool = (v) => (v ? 1 : 0);
 function ok(res, payload = {}) { res.json({ ok: true, ...payload }); }
 function fail(res, code, error) { res.status(code).json({ ok: false, error }); }
 
-/** Retrouve ou crée une marchandise à partir de son nom. */
-function itemIdByName(name) {
-  const clean = String(name || '').trim();
-  if (!clean) return null;
-  const found = db.prepare('SELECT id FROM items WHERE name = ? COLLATE NOCASE').get(clean);
-  if (found) return found.id;
-  return db.prepare('INSERT INTO items (name) VALUES (?)').run(clean).lastInsertRowid;
+/**
+ * Résout une marchandise **déjà connue**, par identifiant ou par nom.
+ *
+ * Rien n'est créé ici, et c'est le point : les noms de marchandises
+ * appartiennent à l'API darkstat. Créer à la volée ce qu'un officier
+ * tapait dans un champ libre laissait entrer « Boron », « boron gas »,
+ * « Bron » et l'espace finale de la même marchandise — autant de fiches
+ * qui ne se rattachaient à aucun relevé de stock : mission ouverte sur un
+ * bien fantôme, stock toujours à zéro, recette jamais réalisable.
+ *
+ * Une marchandise absente de la liste s'ajoute par l'onglet Marchandises,
+ * ou apparaît toute seule au premier relevé de la base qui la vend.
+ */
+function itemConnu({ item_id, item_name } = {}) {
+  const id = num(item_id);
+  if (id) {
+    const trouve = db.prepare('SELECT id FROM items WHERE id = ?').get(id);
+    return trouve ? { id: trouve.id } : { error: 'Cette marchandise n\'existe plus.' };
+  }
+
+  const nom = str(item_name);
+  if (!nom) return { error: 'Indiquez la marchandise.' };
+
+  const trouve = db.prepare('SELECT id FROM items WHERE name = ? COLLATE NOCASE').get(nom);
+  if (trouve) return { id: trouve.id };
+  return { error: nomInconnu(nom) };
 }
+
+const nomInconnu = (nom) =>
+  `Marchandise inconnue : « ${nom} ». Les noms viennent de l'API darkstat ; ` +
+  `ajoutez-la depuis l'onglet Marchandises si elle manque.`;
 
 // ===================================================================
 // Stations
@@ -97,6 +120,12 @@ adminRouter.delete('/stations/:id', admin, (req, res) => {
 // Marchandises
 // ===================================================================
 adminRouter.get('/items', officer, (req, res) => {
+  // Les champs de choix ont besoin de la liste entière, pas des 300
+  // premières : une marchandise absente du menu redeviendrait une
+  // marchandise qu'on saisit à la main.
+  if (req.query.all) {
+    return res.json(db.prepare(`SELECT id, name FROM items ORDER BY name`).all());
+  }
   const q = str(req.query.q);
   const rows = q
     ? db.prepare(`SELECT * FROM items WHERE name LIKE ? ORDER BY name LIMIT 300`).all(`%${q}%`)
@@ -224,15 +253,15 @@ adminRouter.get('/routes', officer, (req, res) => {
 });
 
 adminRouter.post('/routes', officer, (req, res) => {
-  const { item_name, source_id, dest_id, source_label, priority, active } = req.body || {};
-  const itemId = itemIdByName(item_name);
-  if (!itemId) return fail(res, 400, 'Indiquez la marchandise transportée.');
+  const { source_id, dest_id, source_label, priority, active } = req.body || {};
+  const item = itemConnu(req.body || {});
+  if (item.error) return fail(res, 400, item.error);
   if (!dest_id) return fail(res, 400, 'Indiquez la station de destination.');
   try {
     const info = db.prepare(`
       INSERT INTO routes (item_id, source_id, dest_id, source_label, priority, active)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(itemId, num(source_id), num(dest_id), str(source_label), num(priority) ?? 0, bool(active ?? 1));
+    `).run(item.id, num(source_id), num(dest_id), str(source_label), num(priority) ?? 0, bool(active ?? 1));
     audit(req.user.id, 'route.created', 'routes', info.lastInsertRowid);
     ok(res, { id: info.lastInsertRowid });
   } catch (e) {
@@ -282,17 +311,33 @@ const saveRecipe = db.transaction((payload, userId, existingId = null) => {
     ON CONFLICT(recipe_id, item_id) DO UPDATE SET quantity = excluded.quantity
   `);
   for (const c of components || []) {
-    const itemId = c.item_id || itemIdByName(c.name);
+    const item = itemConnu({ item_id: c.item_id, item_name: c.name });
     const qty = Number(c.quantity) || 0;
-    if (itemId && qty > 0) insert.run(id, itemId, qty);
+    if (item.id && qty > 0) insert.run(id, item.id, qty);
   }
 
   audit(userId, existingId ? 'recipe.updated' : 'recipe.created', 'recipes', id, { name });
   return id;
 });
 
+/**
+ * Composants dont la marchandise n'existe pas.
+ *
+ * Contrôlés avant l'enregistrement plutôt qu'ignorés au passage : une
+ * recette amputée d'un composant s'affiche comme réalisable alors qu'il
+ * manque un bien, et rien n'aurait signalé la faute de frappe.
+ */
+function composantsInconnus(components) {
+  return (components || [])
+    .filter((c) => (Number(c.quantity) || 0) > 0)
+    .filter((c) => itemConnu({ item_id: c.item_id, item_name: c.name }).error)
+    .map((c) => str(c.name) || `#${c.item_id}`);
+}
+
 adminRouter.post('/recipes', officer, (req, res) => {
   if (!req.body?.name) return fail(res, 400, 'Donnez un nom à la recette.');
+  const inconnus = composantsInconnus(req.body?.components);
+  if (inconnus.length) return fail(res, 400, nomInconnu(inconnus.join(', ')));
   try {
     ok(res, { id: saveRecipe(req.body, req.user.id) });
   } catch (e) {
@@ -303,6 +348,8 @@ adminRouter.post('/recipes', officer, (req, res) => {
 adminRouter.put('/recipes/:id', officer, (req, res) => {
   const existing = db.prepare('SELECT id FROM recipes WHERE id = ?').get(req.params.id);
   if (!existing) return fail(res, 404, 'Recette inconnue.');
+  const inconnus = composantsInconnus(req.body?.components);
+  if (inconnus.length) return fail(res, 400, nomInconnu(inconnus.join(', ')));
   try {
     saveRecipe(req.body, req.user.id, existing.id);
     ok(res);
@@ -333,10 +380,11 @@ adminRouter.post('/recipes/import', admin, async (req, res) => {
 // Missions créées à la main
 // ===================================================================
 adminRouter.post('/missions', officer, (req, res) => {
-  const { station_id, item_name, direction, target_qty, origin, priority,
+  const { station_id, direction, target_qty, origin, priority,
           reward_multiplier } = req.body || {};
-  const itemId = itemIdByName(item_name);
-  if (!station_id || !itemId) return fail(res, 400, 'Station et marchandise sont obligatoires.');
+  if (!station_id) return fail(res, 400, 'Indiquez la station.');
+  const item = itemConnu(req.body || {});
+  if (item.error) return fail(res, 400, item.error);
 
   // Prime de risque : multiplicateur des points. Bornée pour éviter qu'une
   // saisie erronée ne fausse durablement le classement.
@@ -347,7 +395,7 @@ adminRouter.post('/missions', officer, (req, res) => {
       INSERT INTO missions (station_id, item_id, direction, target_qty, origin, priority, status, auto, reward_multiplier, created_by)
       VALUES (?, ?, ?, ?, ?, ?, 'open', 0, ?, ?)
     `).run(
-      num(station_id), itemId, direction === 'export' ? 'export' : 'import',
+      num(station_id), item.id, direction === 'export' ? 'export' : 'import',
       num(target_qty) ?? 0, str(origin), str(priority) || 'normal', prime, req.user.id
     );
     audit(req.user.id, 'mission.created', 'missions', info.lastInsertRowid);

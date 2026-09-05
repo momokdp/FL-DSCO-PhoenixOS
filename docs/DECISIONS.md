@@ -270,3 +270,20 @@ plus s'engager au-delà du besoin restant.
 
 Il part maintenant de 0 et refuse d'être validé à 0 : c'est au pilote de
 dire ce qu'il emporte. Le plafond, lui, reste ce qui manque.
+
+## Une marchandise se choisit, elle ne se tape pas
+
+Les noms de marchandises appartiennent à l'API darkstat : c'est le nom qui
+rattache une mission, une route ou un composant de recette au relevé de
+stock de la station.
+
+Les formulaires de gestion offraient un champ libre, et le serveur créait la
+fiche manquante à la volée. « Boron », « boron gas », « Bron » et « Boron »
+suivi d'une espace faisaient donc quatre marchandises, dont trois sans le
+moindre stock : mission ouverte sur un bien fantôme, jauge figée à zéro,
+recette jamais réalisable — sans rien qui signale la faute de frappe.
+
+Missions, routes et composants de recette se choisissent maintenant dans la
+liste connue, et le serveur refuse ce qu'il ne connaît pas. La liste
+s'alimente toute seule au relevé ; **Gestion → Marchandises** reste le seul
+endroit où l'on en crée une à la main, quand l'API ne la sert pas encore.
