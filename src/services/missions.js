@@ -298,14 +298,32 @@ export const deliverClaim = db.transaction((claimId, userId, quantity, note = nu
   return { ok: true, delivered: qty, points };
 });
 
-/** Le pilote se désengage sans livrer. Aucun mouvement de stock. */
-export function abandonClaim(claimId, userId) {
+/**
+ * Le pilote se désengage sans livrer. Aucun mouvement de stock.
+ *
+ * Un officier peut désengager n'importe qui : un engagement fantaisiste
+ * (tonnage aberrant, mission prise par erreur) bloque la mission pour les
+ * autres, puisqu'on ne peut plus s'engager au-delà du besoin restant. On
+ * garde alors la trace de qui a retiré l'engagement, et pourquoi.
+ */
+export function abandonClaim(claimId, actorId, { isOfficer = false, reason = null } = {}) {
   const claim = db.prepare(`SELECT * FROM mission_claims WHERE id = ? AND status = 'in_progress'`).get(claimId);
   if (!claim) return { ok: false, error: "Cet engagement n'est plus actif." };
-  if (claim.user_id !== userId) return { ok: false, error: "Cet engagement appartient à un autre pilote." };
+  if (claim.user_id !== actorId && !isOfficer) {
+    return { ok: false, error: "Cet engagement appartient à un autre pilote." };
+  }
 
-  db.prepare(`UPDATE mission_claims SET status='abandoned', closed_at=datetime('now') WHERE id = ?`).run(claimId);
-  audit(userId, 'mission.abandoned', 'missions', claim.mission_id);
+  const parUnOfficier = claim.user_id !== actorId;
+
+  db.prepare(`
+    UPDATE mission_claims
+    SET status='abandoned', closed_at=datetime('now'),
+        cancelled_by = ?, cancel_reason = ?
+    WHERE id = ?
+  `).run(parUnOfficier ? actorId : null, parUnOfficier ? reason : null, claimId);
+
+  audit(actorId, 'mission.abandoned', 'missions', claim.mission_id,
+    parUnOfficier ? { pilote: claim.user_id, reason } : null);
   broadcast('missions:changed', { missionId: claim.mission_id });
   return { ok: true };
 }
@@ -443,6 +461,43 @@ export function claimHistory(userId, limit = 100) {
     ORDER BY COALESCE(c.closed_at, c.claimed_at) DESC
     LIMIT ?
   `).all(userId, limit);
+}
+
+/**
+ * Derniers engagements, tous pilotes confondus.
+ *
+ * L'historique d'un pilote ne montre que ses propres runs. Un officier qui
+ * doit corriger une saisie fantaisiste — un tonnage sans rapport avec la
+ * mission, une livraison jamais faite — n'avait aucun moyen de la retrouver,
+ * et donc aucun moyen de la retirer. C'est la liste sur laquelle il agit.
+ *
+ * On y met aussi les engagements encore en cours : un pilote qui réserve
+ * tout le besoin d'une mission par erreur la bloque pour les autres.
+ */
+export function recentClaims({ limit = 200, status = null, pilotId = null } = {}) {
+  return db.prepare(`
+    SELECT c.id AS claim_id, c.status, c.pledged_qty, c.delivered_qty, c.points,
+           c.claimed_at, c.closed_at, c.cancel_reason,
+           m.id AS mission_id, m.direction, m.auto,
+           i.name AS item_name, i.volume AS item_volume,
+           st.name AS station_name, st.code AS station_code,
+           u.id AS user_id, u.display_name, u.callsign, u.avatar,
+           cb.callsign AS cancelled_by_callsign, cb.display_name AS cancelled_by_name
+    FROM mission_claims c
+    JOIN missions m  ON m.id  = c.mission_id
+    JOIN items i     ON i.id  = m.item_id
+    JOIN stations st ON st.id = m.station_id
+    JOIN users u     ON u.id  = c.user_id
+    LEFT JOIN users cb ON cb.id = c.cancelled_by
+    WHERE (? IS NULL OR c.status = ?)
+      AND (? IS NULL OR c.user_id = ?)
+    ORDER BY
+      -- Un engagement en cours passe devant : c'est celui qui bloque encore
+      -- une mission, donc celui qu'un officier vient corriger en premier.
+      CASE c.status WHEN 'in_progress' THEN 0 ELSE 1 END,
+      COALESCE(c.closed_at, c.claimed_at) DESC
+    LIMIT ?
+  `).all(status, status, pilotId, pilotId, Math.min(500, Math.max(1, Number(limit) || 200)));
 }
 
 /**

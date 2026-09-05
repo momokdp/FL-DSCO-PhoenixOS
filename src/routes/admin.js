@@ -8,6 +8,7 @@ import { broadcast } from '../services/events.js';
 import { importRecipesFromConfig } from '../services/recipeImport.js';
 import { config } from '../config.js';
 import { setThreshold, listThresholds, stationInventory } from '../services/stock.js';
+import { recentClaims, cancelDelivery, abandonClaim } from '../services/missions.js';
 
 export const adminRouter = express.Router();
 
@@ -365,6 +366,55 @@ adminRouter.delete('/missions/:id', officer, (req, res) => {
   audit(req.user.id, 'mission.archived', 'missions', Number(req.params.id));
   broadcast('missions:changed', {});
   ok(res);
+});
+
+// ===================================================================
+// Runs des pilotes
+//
+// Un pilote ne voit que ses propres runs et ne peut annuler que les siens.
+// Quand il saisit un tonnage fantaisiste, personne ne peut le corriger :
+// le stock effectif et le classement du mois restent faux. Ces deux appels
+// donnent à l'officier la vue et le geste qui lui manquaient.
+// ===================================================================
+
+adminRouter.get('/claims', officer, (req, res) => {
+  const statuts = ['in_progress', 'delivered', 'abandoned', 'cancelled', 'expired'];
+  res.json(recentClaims({
+    limit: num(req.query.limit) ?? 200,
+    status: statuts.includes(req.query.status) ? req.query.status : null,
+    pilotId: num(req.query.pilot),
+  }));
+});
+
+/**
+ * Retire un run.
+ *
+ * Livraison enregistrée : on annule, ce qui supprime l'ajustement de stock
+ * et remet les points à zéro. Engagement encore en cours : on désengage le
+ * pilote, ce qui libère le tonnage réservé pour les autres. Dans les deux
+ * cas la trace reste sur l'engagement — statut, officier, motif — plutôt
+ * que de disparaître de l'historique du pilote sans explication.
+ */
+adminRouter.post('/claims/:id/cancel', officer, (req, res) => {
+  const claim = db.prepare('SELECT id, status FROM mission_claims WHERE id = ?').get(req.params.id);
+  if (!claim) return fail(res, 404, 'Engagement introuvable.');
+
+  const motif = str(req.body?.reason);
+  const result = claim.status === 'in_progress'
+    ? abandonClaim(claim.id, req.user.id, { isOfficer: true, reason: motif })
+    : cancelDelivery(claim.id, req.user.id, { isOfficer: true, reason: motif });
+
+  if (!result.ok) return fail(res, 409, result.error);
+
+  // `abandonClaim` journalise déjà le désengagement. `cancelDelivery`, non :
+  // c'est ici qu'une annulation de livraison entre au journal.
+  if (claim.status !== 'in_progress') {
+    audit(req.user.id, 'mission.cancelled', 'mission_claims', claim.id,
+      { previous: claim.status, reason: motif });
+  }
+  broadcast('stock:updated', {});
+  broadcast('missions:changed', {});
+  ok(res, result);
 });
 
 /** Correction manuelle de stock, tracée comme telle. */

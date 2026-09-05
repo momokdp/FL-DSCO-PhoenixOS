@@ -111,6 +111,7 @@ const DICT = {
     'claim.title': 'Take this run',
     'claim.qtyLabel': 'Tonnage you commit to hauling',
     'claim.qtyHint': 'Indicative — it stops three pilots hauling the same cargo.',
+    'claim.qtyRequired': 'Enter the tonnage you commit to hauling.',
     'claim.confirm': 'Take it',
     'claim.done': 'Run taken. Safe flight.',
 
@@ -365,6 +366,7 @@ const DICT = {
     'claim.title': 'Prendre la mission',
     'claim.qtyLabel': 'Tonnage que vous vous engagez à transporter',
     'claim.qtyHint': 'Indicatif : évite que trois pilotes chargent la même cargaison.',
+    'claim.qtyRequired': "Indiquez le tonnage que vous vous engagez à transporter.",
     'claim.confirm': 'Prendre',
     'claim.done': 'Mission prise. Bon vol.',
 

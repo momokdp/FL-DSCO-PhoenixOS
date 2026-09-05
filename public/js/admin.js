@@ -13,6 +13,7 @@ const TABS = [
   { key: 'stations', label: 'Stations', role: 'officer' },
   { key: 'thresholds', label: 'Seuils', role: 'officer' },
   { key: 'missions', label: 'Missions', role: 'officer' },
+  { key: 'runs', label: 'Runs', role: 'officer' },
   { key: 'items', label: 'Marchandises', role: 'officer' },
   { key: 'routes', label: 'Routes', role: 'officer' },
   { key: 'recipes', label: 'Recettes', role: 'officer' },
@@ -416,6 +417,145 @@ async function missionsPane(ctx) {
   );
 }
 
+/* ================================================================ runs */
+
+/**
+ * Runs de tous les pilotes.
+ *
+ * Un pilote ne voit que les siens et n'annule que les siens. Quand l'un
+ * d'eux saisit un tonnage fantaisiste, le stock effectif et le classement
+ * du mois restent faux tant que personne ne peut y toucher. C'est le seul
+ * écran où un officier retrouve le run d'un autre et le retire.
+ *
+ * « Retirer » ne veut pas dire effacer : la ligne reste dans l'historique
+ * du pilote, marquée annulée, avec le motif et le nom de l'officier. Un run
+ * qui disparaîtrait sans laisser de trace ressemblerait à un bug.
+ */
+async function runsPane(ctx) {
+  const state = ctx.runsFiltre ??= 'in_progress';
+  const filtre = input({ type: 'search', placeholder: 'Filtrer un pilote, une marchandise…' });
+  const host = h('div', loading());
+
+  const STATUTS = [
+    { value: 'in_progress', label: 'Engagements en cours' },
+    { value: 'delivered', label: 'Livraisons enregistrées' },
+    { value: 'cancelled', label: 'Annulés' },
+    { value: 'abandoned', label: 'Abandonnés' },
+    { value: '', label: 'Tous' },
+  ];
+
+  const LIBELLE = {
+    in_progress: 'En cours', delivered: 'Livré', cancelled: 'Annulé',
+    abandoned: 'Abandonné', expired: 'Expiré',
+  };
+
+  const choix = select(STATUTS, {
+    value: state,
+    onChange: (e) => { ctx.runsFiltre = e.target.value; charger(); },
+  });
+
+  let runs = [];
+
+  const charger = async () => {
+    host.replaceChildren(loading());
+    try {
+      const q = ctx.runsFiltre ? `?status=${encodeURIComponent(ctx.runsFiltre)}` : '';
+      runs = await get(`/admin/claims${q}`);
+      rendre();
+    } catch (e) { host.replaceChildren(empty('Lecture impossible', e.message)); }
+  };
+
+  /**
+   * Retrait d'un run.
+   *
+   * Le motif est facultatif mais fortement souhaitable : c'est ce que le
+   * pilote lira dans son historique pour comprendre ce qui lui est arrivé.
+   */
+  const retirer = async (r) => {
+    const encours = r.status === 'in_progress';
+    const motif = input({ name: 'reason', placeholder: 'Tonnage aberrant, run jamais fait…' });
+
+    const confirme = await modal({
+      title: encours ? 'Retirer cet engagement' : 'Annuler cette livraison',
+      build: () => h('div',
+        h('p', { style: 'margin-top:0' },
+          h('strong', r.callsign || r.display_name), ' · ',
+          h('strong', r.item_name), ` · ${r.station_name}`),
+        h('p.hint', encours
+          ? `Les ${num(r.pledged_qty)} unités réservées repartent au pot commun. `
+            + 'Le pilote pourra reprendre la mission.'
+          : `Les ${num(r.delivered_qty)} unités seront retirées de ${r.station_name} `
+            + `et les ${num(r.points)} points perdus.`),
+        field('Motif', motif, 'Visible par le pilote dans son historique.'),
+      ),
+      actions: [
+        { label: 'Annuler', value: null },
+        { label: encours ? 'Retirer' : 'Annuler la livraison', variant: 'danger',
+          onClick: (c) => c({ reason: motif.value.trim() || null }) },
+      ],
+    });
+
+    if (!confirme) return;
+    try {
+      await post(`/admin/claims/${r.claim_id}/cancel`, confirme);
+      toast(encours ? 'Engagement retiré.' : 'Livraison annulée, soute rétablie.');
+      charger();
+    } catch (e) { notifyError(e); }
+  };
+
+  const rendre = () => {
+    const q = filtre.value.trim().toLowerCase();
+    const lignes = runs.filter((r) => !q
+      || `${r.callsign || ''} ${r.display_name || ''} ${r.item_name} ${r.station_name}`
+        .toLowerCase().includes(q));
+
+    if (!lignes.length) {
+      host.replaceChildren(empty(
+        runs.length ? 'Aucun résultat' : 'Aucun run',
+        runs.length ? 'Essayez un autre terme.'
+          : 'Rien à corriger sur ce statut.'));
+      return;
+    }
+
+    host.replaceChildren(table(
+      [{ label: 'Pilote' }, { label: 'Marchandise' }, { label: 'Station' }, { label: 'Sens' },
+        { label: 'Engagé', num: true }, { label: 'Livré', num: true },
+        { label: 'Points', num: true }, { label: 'Quand' }, { label: 'État' }, { label: '' }],
+      lignes,
+      (r) => h('tr', { class: r.status === 'in_progress' || r.status === 'delivered' ? null : 'is-off' },
+        h('td', h('strong', r.callsign || r.display_name),
+          r.callsign ? h('em.hint', r.display_name) : null),
+        h('td', r.item_name),
+        h('td', r.station_name),
+        h('td', h(`span.way.way--${r.direction}`,
+          r.direction === 'import' ? 'Livrer' : 'Enlever')),
+        h('td', { class: 'num' }, num(r.pledged_qty)),
+        h('td', { class: 'num' }, r.status === 'delivered' ? num(r.delivered_qty) : '—'),
+        h('td', { class: 'num' }, r.points ? num(r.points) : '—'),
+        h('td', dateShort(r.closed_at || r.claimed_at)),
+        h('td', LIBELLE[r.status] || r.status,
+          // Qui a retiré le run et pourquoi, sur une seule ligne : c'est ce
+          // que l'officier suivant lira avant de rouvrir le sujet.
+          r.cancelled_by_callsign || r.cancel_reason
+            ? h('em.hint', [r.cancelled_by_callsign ? `par ${r.cancelled_by_callsign}` : null,
+              r.cancel_reason].filter(Boolean).join(' · '))
+            : null),
+        rowActions(
+          r.status === 'in_progress' || r.status === 'delivered'
+            ? deleteBtn(() => retirer(r))
+            : null),
+      )));
+  };
+
+  filtre.addEventListener('input', () => runs.length && rendre());
+  charger();
+
+  return panel('Runs des pilotes', {
+    flush: true,
+    tools: h('span', { style: 'display:flex;gap:.5rem;align-items:center' }, choix, filtre),
+  }, host);
+}
+
 /* ======================================================= marchandises */
 
 async function itemsPane(ctx) {
@@ -740,6 +880,7 @@ const PANES = {
   stations: stationsPane,
   thresholds: thresholdsPane,
   missions: missionsPane,
+  runs: runsPane,
   items: itemsPane,
   routes: routesPane,
   recipes: recipesPane,

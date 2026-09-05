@@ -242,9 +242,12 @@ async function claimFlow(m, ctx) {
   const restant = Math.max(0, m.target_qty - m.pledged_qty);
   if (restant <= 0) { toast(t('mission.full'), 'err'); return; }
 
-  // Le champ est plafonné à ce qui reste : s'engager au-delà n'a pas de sens.
+  // Le champ part de 0, et non du besoin entier : pré-remplir la totalité
+  // faisait réserver toute la mission au pilote qui validait sans lire, et
+  // la bloquait pour les autres. C'est à lui de dire ce qu'il emporte.
+  // Il reste plafonné à ce qui manque : s'engager au-delà n'a pas de sens.
   const champ = input({ type: 'number', name: 'pledged', min: '1', step: '1',
-    max: String(restant), value: restant, class: 'input--num' });
+    max: String(restant), value: 0, class: 'input--num' });
 
   const value = await modal({
     title: t('claim.title'),
@@ -257,11 +260,15 @@ async function claimFlow(m, ctx) {
     actions: [
       { label: t('common.cancel'), value: null },
       { label: t('claim.confirm'), variant: 'primary',
-        onClick: (c) => c(Math.min(restant, Math.max(1, Number(champ.value) || 0))) },
+        onClick: (c) => c(Math.min(restant, Math.max(0, Math.round(Number(champ.value) || 0)))) },
     ],
   });
 
   if (value == null) return;
+  // Valider à 0 n'engage à rien. Le dire vaut mieux qu'inscrire le pilote
+  // sur la mission pour une unité qu'il n'a pas choisie.
+  if (value < 1) { toast(t('claim.qtyRequired'), 'err'); return; }
+
   try {
     await post(`/missions/${m.id}/claim`, { pledged: value });
     toast(t('claim.done'));
