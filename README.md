@@ -237,7 +237,10 @@ cd /root/kadesh && git pull && sudo bash install/install-debian.sh
    renvoyé par darkstat, par exemple `Kadesh Orbital City`. C'est la cause
    numéro un de soute qui reste vide.
 3. **Gestion → Synchronisation → Lancer un relevé.** Marchandises et stocks se
-   créent tout seuls.
+   créent tout seuls. Missions, routes et recettes choisissent ensuite leur
+   marchandise dans cette liste : rien ne se saisit à la main, pour que le nom
+   corresponde toujours à celui de l'API. Une marchandise que darkstat ne sert
+   pas encore s'ajoute par **Gestion → Marchandises**.
 4. Les missions s'ouvrent automatiquement pour tout ce qui passe sous le seuil bas.
 5. **Gestion → Recettes → Importer depuis Discovery** pour peupler l'armurerie.
 6. **Gestion → Pilotes** : donnez le rôle *officier* à ceux qui doivent gérer
