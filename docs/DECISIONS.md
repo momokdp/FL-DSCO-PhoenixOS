@@ -188,3 +188,33 @@ node:sqlite. Un booléen doit devenir `1` / `0` avant d'atteindre la base.
 **C'est arrivé** sur `path_times.reachable`, écrit directement depuis
 l'objet rendu à l'appelant. La conversion se fait maintenant au moment de
 l'écriture, et la valeur reste un booléen côté JavaScript.
+
+## Un run se corrige, il ne s'efface pas
+
+Un pilote peut saisir n'importe quoi — un tonnage à cinq chiffres sur une
+mission qui en demande cent. Le stock effectif et le classement du mois
+restent faux tant que personne ne peut y toucher, et le pilote concerné ne
+voit que ses propres runs.
+
+**Gestion → Runs** donne donc à l'officier la vue et le geste qui lui
+manquaient, sur les runs de tous les pilotes :
+
+| État du run | Effet du retrait |
+|---|---|
+| `in_progress` | Désengagement. Le tonnage réservé repart au pot commun. |
+| `delivered` | Annulation : `stock_adjustments` supprimé, `points` à zéro. |
+
+Dans les deux cas la ligne **reste** dans l'historique du pilote, marquée
+`abandoned` ou `cancelled`, avec `cancelled_by` et `cancel_reason`. Un run
+qui disparaîtrait sans trace ressemblerait à un bug, et priverait l'officier
+suivant du seul élément qui explique le geste.
+
+## Le tonnage engagé part de 0
+
+Le champ « tonnage que vous vous engagez à transporter » était pré-rempli
+avec le besoin entier de la mission. Un pilote qui validait sans lire
+réservait toute la mission et la bloquait pour les autres, puisqu'on ne peut
+plus s'engager au-delà du besoin restant.
+
+Il part maintenant de 0 et refuse d'être validé à 0 : c'est au pilote de
+dire ce qu'il emporte. Le plafond, lui, reste ce qui manque.

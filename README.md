@@ -155,6 +155,25 @@ Trois propriétés à connaître :
 Réservé aux officiers et aux administrateurs. Le bouton « Supprimer » d'une
 ligne réglée rétablit les valeurs de l'API.
 
+### Corriger le run d'un pilote
+
+Un pilote ne voit que ses propres runs et n'annule que les siens. Quand l'un
+d'eux saisit un tonnage sans rapport avec la réalité, le stock effectif et le
+classement du mois restent faux tant que personne ne peut y toucher.
+
+**Gestion → Runs** liste les runs de tous les pilotes. Le filtre suit leur
+état ; les engagements en cours viennent en tête, puisque ce sont eux qui
+bloquent encore une mission.
+
+| État du run | Ce que fait « Supprimer » |
+|---|---|
+| **En cours** | Désengage le pilote. Le tonnage réservé repart au pot commun. |
+| **Livré** | Annule la livraison : l'ajustement de stock est retiré, les points remis à zéro. |
+
+Le run ne disparaît pas de l'historique du pilote : il y reste marqué annulé,
+avec le nom de l'officier et le motif saisi. Une ligne qui s'évaporerait sans
+explication ressemblerait à un bug.
+
 ---
 
 ## Exploitation
@@ -194,7 +213,7 @@ cd /root/kadesh && git pull && sudo bash install/install-debian.sh
 | Rôle | Peut faire |
 |---|---|
 | **Pilote** | Consulter, prendre des missions, déclarer ses livraisons |
-| **Officier** | Idem, plus stations, marchandises, routes, recettes, missions, relevés |
+| **Officier** | Idem, plus stations, marchandises, routes, recettes, missions, runs des pilotes, relevés |
 | **Administrateur** | Idem, plus les rôles des pilotes, les suppressions et l'import de recettes |
 
 La console refuse de retirer son rôle au dernier administrateur actif.
