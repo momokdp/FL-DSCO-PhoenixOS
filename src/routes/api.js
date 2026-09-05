@@ -4,7 +4,7 @@ import { requireAuth, publicUser } from '../auth/middleware.js';
 import { listStations, stationInventory, itemAcrossStations, syncState } from '../services/stock.js';
 import {
   listOpenMissions, claimMission, deliverClaim, abandonClaim,
-  myClaims, leaderboard, refreshAutoMissions, claimHistory, cancelDelivery, monthlyFunds,
+  myClaims, refreshAutoMissions, claimHistory, cancelDelivery, payoutPlan,
 } from '../services/missions.js';
 import { subscribe, broadcast } from '../services/events.js';
 import { listLoops, setShip } from '../services/loops.js';
@@ -177,7 +177,16 @@ apiRouter.post('/claims/:id/cancel', requireAuth, (req, res) => {
   res.json(result);
 });
 
+/**
+ * Classement, cagnotte et répartition en un seul appel.
+ *
+ * Les trois se lisent ensemble : un pourcentage de participation n'a de
+ * sens qu'en face des points qui le produisent, et une part en crédits
+ * qu'en face de la cagnotte dont elle sort. Les servir séparément
+ * laisserait l'écran afficher un instant une part calculée sur des fonds
+ * qui ne sont plus ceux du relevé courant.
+ */
 apiRouter.get('/leaderboard', requireAuth, (req, res) => {
   const period = ['month', 'last', 'year'].includes(req.query.period) ? req.query.period : 'month';
-  res.json({ period, rows: leaderboard(period), funds: monthlyFunds() });
+  res.json({ period, ...payoutPlan(period) });
 });

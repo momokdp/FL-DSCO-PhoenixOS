@@ -182,7 +182,9 @@ function connectStream() {
     if (routes.includes(current())) ctx.reload();
   };
 
-  source.addEventListener('missions:changed', touch(['missions', 'mine', 'admin', 'loops']));
+  // Le classement suit les livraisons : une part de cagnotte annoncée à un
+  // pilote change dès qu'un autre livre.
+  source.addEventListener('missions:changed', touch(['missions', 'mine', 'admin', 'loops', 'board']));
   // Les circuits sont refaits par la passe horaire : l'écran doit suivre
   // sans que le pilote ait à le recharger.
   source.addEventListener('loops:changed', touch(['loops']));
@@ -192,7 +194,9 @@ function connectStream() {
   source.addEventListener('sync:done', (e) => {
     try { ctx.sync = { ...ctx.sync, lastSyncAt: JSON.parse(e.data).at }; } catch { /* ignore */ }
     paintSync();
-    if (['stations', 'missions', 'recipes', 'admin'].includes(current())) ctx.reload();
+    // Le relevé rapporte les fonds des stations : la cagnotte et donc le
+    // revenu estimé de chaque pilote bougent à chaque synchronisation.
+    if (['stations', 'missions', 'recipes', 'admin', 'board'].includes(current())) ctx.reload();
   });
 
   source.onerror = () => {

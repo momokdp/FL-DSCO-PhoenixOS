@@ -1,4 +1,4 @@
-import { db, audit, nowSql } from '../db/index.js';
+import { db, audit, nowSql, getSetting } from '../db/index.js';
 import { broadcast } from './events.js';
 
 /**
@@ -353,16 +353,8 @@ export function myClaims(userId) {
   `).all(userId);
 }
 
-/** Classement des pilotes sur une fenêtre glissante. */
 /**
- * Classement au mérite.
- *
- * On s'appuie sur les points figés à la livraison, et non sur les unités
- * brutes : celles-ci défavorisaient les marchandises volumineuses, qui
- * demandent pourtant autant de trajets.
- */
-/**
- * Classement.
+ * Fenêtres du classement.
  *
  * La période par défaut est le MOIS CIVIL en cours, et non les trente
  * derniers jours : la répartition des gains se fait au premier du mois sur
@@ -372,13 +364,23 @@ export function myClaims(userId) {
  * `period` vaut 'month' (mois en cours), 'last' (mois précédent, utile le
  * jour de la paye) ou 'year'.
  */
+const FENETRES = {
+  month: ["date('now','start of month')", "date('now','start of month','+1 month')"],
+  last:  ["date('now','start of month','-1 month')", "date('now','start of month')"],
+  year:  ["date('now','start of year')", "date('now','start of year','+1 year')"],
+};
+
+const fenetre = (period) => FENETRES[period] || FENETRES.month;
+
+/**
+ * Classement au mérite.
+ *
+ * On s'appuie sur les points figés à la livraison, et non sur les unités
+ * brutes : celles-ci défavorisaient les marchandises volumineuses, qui
+ * demandent pourtant autant de trajets.
+ */
 export function leaderboard(period = 'month') {
-  const FENETRES = {
-    month: ["date('now','start of month')", "date('now','start of month','+1 month')"],
-    last:  ["date('now','start of month','-1 month')", "date('now','start of month')"],
-    year:  ["date('now','start of year')", "date('now','start of year','+1 year')"],
-  };
-  const [debut, fin] = FENETRES[period] || FENETRES.month;
+  const [debut, fin] = fenetre(period);
 
   return db.prepare(`
     SELECT u.id, u.display_name, u.callsign, u.avatar,
@@ -397,45 +399,145 @@ export function leaderboard(period = 'month') {
 }
 
 /**
- * Fonds des stations et variation depuis le début du mois.
+ * Total des points de la période, tous pilotes confondus.
+ *
+ * Le classement s'arrête à cinquante lignes ; les pourcentages, eux, se
+ * calculent sur l'ensemble. Sommer les seules lignes affichées gonflerait
+ * la part de chacun dès le cinquante-et-unième pilote.
+ */
+export function totalPoints(period = 'month') {
+  const [debut, fin] = fenetre(period);
+
+  return db.prepare(`
+    SELECT COALESCE(SUM(c.points), 0) AS v
+    FROM mission_claims c
+    WHERE c.status = 'delivered'
+      AND c.closed_at >= ${debut}
+      AND c.closed_at <  ${fin}
+  `).get().v;
+}
+
+// Bornes des fonds. Une borne de fin nulle signale une période encore
+// ouverte, dont la clôture est le solde de l'instant.
+const BORNES_FONDS = {
+  month: ["strftime('%Y-%m-01','now')", null],
+  last:  ["strftime('%Y-%m-01','now','-1 month')", "strftime('%Y-%m-01','now')"],
+  year:  ["strftime('%Y-01-01','now')", null],
+};
+
+/**
+ * Fonds des stations et variation sur la période.
  *
  * L'API ne donne que le solde courant : la variation se calcule contre le
- * premier relevé quotidien du mois. Ce n'est pas un chiffre d'affaires au
- * sens comptable — les dépenses de la station y sont déduites — mais c'est
- * la seule mesure disponible, et c'est celle qui alimente la répartition.
+ * premier relevé quotidien de la période. Ce n'est pas un chiffre
+ * d'affaires au sens comptable — les dépenses de la station y sont
+ * déduites — mais c'est la seule mesure disponible, et c'est celle qui
+ * alimente la répartition.
+ *
+ * Sur une période close (« mois dernier »), le solde courant n'a rien à
+ * voir avec ce que les stations avaient à la clôture : on prend alors le
+ * dernier relevé de la fenêtre, pas station_status.
  */
-export function monthlyFunds() {
-  // Les fonds vivent dans station_status, écrasé à chaque synchronisation.
-  const total = db.prepare(`
-    SELECT COALESCE(SUM(ss.money), 0) AS v
-    FROM station_status ss
-    JOIN stations st ON st.id = ss.station_id AND st.active = 1
-  `).get().v;
+export function periodFunds(period = 'month') {
+  const [debut, fin] = BORNES_FONDS[period] || BORNES_FONDS.month;
+  const borne = fin ? `AND l.day < ${fin}` : '';
 
-  const base = db.prepare(`
-    SELECT COALESCE(SUM(l.money), 0) AS v
+  const jour = (agregat) => db.prepare(`
+    SELECT ${agregat}(l.day) AS day
     FROM station_funds_log l
     JOIN stations st ON st.id = l.station_id AND st.active = 1
-    WHERE l.day = (
-      SELECT MIN(day) FROM station_funds_log
-      WHERE day >= strftime('%Y-%m-01', 'now')
-    )
-  `).get().v;
+    WHERE l.day >= ${debut} ${borne}
+  `).get().day;
 
-  const parStation = db.prepare(`
+  const soldesDuJour = (day) => db.prepare(`
+    SELECT st.id, st.name, st.code, COALESCE(l.money, 0) AS money
+    FROM stations st
+    LEFT JOIN station_funds_log l ON l.station_id = st.id AND l.day = ?
+    WHERE st.active = 1 ORDER BY st.sort_order, st.name
+  `).all(day);
+
+  const soldesCourants = () => db.prepare(`
     SELECT st.id, st.name, st.code, COALESCE(ss.money, 0) AS money
     FROM stations st
     LEFT JOIN station_status ss ON ss.station_id = st.id
     WHERE st.active = 1 ORDER BY st.sort_order, st.name
   `).all();
 
+  const somme = (lignes) => lignes.reduce((t, s) => t + s.money, 0);
+
+  const jourBase = jour('MIN');
+  const baseline = jourBase ? somme(soldesDuJour(jourBase)) : 0;
+
+  // Période close : la clôture est le dernier relevé de la fenêtre.
+  // Période en cours : le solde de l'instant, qui bouge à chaque relevé.
+  const jourFin = fin ? jour('MAX') : null;
+  const stations = fin ? (jourFin ? soldesDuJour(jourFin) : []) : soldesCourants();
+  const total = somme(stations);
+
   return {
     total,
-    baseline: base,
-    delta: base > 0 ? total - base : 0,
-    hasBaseline: base > 0,
-    stations: parStation,
+    baseline,
+    delta: jourBase ? total - baseline : 0,
+    hasBaseline: !!jourBase,
+    stations,
+    period,
+    closed: !!fin,
     month: new Date().toISOString().slice(0, 7),
+  };
+}
+
+/**
+ * Part de la cagnotte reversée aux pilotes, en pourcentage.
+ *
+ * Rarement 100 % : une station qui rend tout ce qu'elle gagne n'a plus de
+ * quoi racheter la marchandise du mois suivant. Le réglage est donc à la
+ * main des officiers, dans l'en-tête du classement.
+ */
+export const PAYOUT_SHARE_KEY = 'payout_share';
+
+export function payoutShare() {
+  const brut = Number(getSetting(PAYOUT_SHARE_KEY, 100));
+  if (!Number.isFinite(brut)) return 100;
+  return Math.min(100, Math.max(0, brut));
+}
+
+/**
+ * Répartition de la cagnotte.
+ *
+ * Le pourcentage de participation d'un pilote est sa part des points de la
+ * période. Multiplié par la cagnotte, il donne ce qu'il touchera à la fin
+ * du mois — une estimation qui suit les fonds des stations en direct,
+ * puisque ceux-ci sont relevés à chaque synchronisation.
+ *
+ * Les crédits se distribuent à la plus forte décimale : arrondir chaque
+ * part séparément laisserait quelques crédits non attribués, et un total
+ * qui ne retombe pas sur la cagnotte annoncée juste au-dessus.
+ */
+export function payoutPlan(period = 'month') {
+  const rows = leaderboard(period);
+  const funds = periodFunds(period);
+  const part = payoutShare();
+  const total = totalPoints(period);
+  const pool = Math.max(0, Math.round((funds.delta * part) / 100));
+
+  const parts = rows.map(r => (total > 0 ? (r.points || 0) / total : 0));
+  const exacts = parts.map(p => pool * p);
+  const credits = exacts.map(Math.floor);
+
+  let reste = pool - credits.reduce((a, b) => a + b, 0);
+  const ordre = exacts.map((_, i) => i).sort((a, b) => (exacts[b] % 1) - (exacts[a] % 1));
+  for (const i of ordre) {
+    if (reste <= 0) break;
+    credits[i]++;
+    reste--;
+  }
+
+  return {
+    rows: rows.map((r, i) => ({ ...r, share: parts[i], payout: credits[i] })),
+    funds,
+    pool,
+    payoutShare: part,
+    totalPoints: total,
   };
 }
 
