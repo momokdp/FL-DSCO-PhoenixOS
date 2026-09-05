@@ -1025,3 +1025,25 @@ a:hover { text-decoration: underline; }
   .loop__cargo    { grid-column: 2 / -1; grid-row: 2; }
   .loop .mission__actions { flex-direction: column; }
 }
+
+/* =====================================================================
+   Missions créées à la main.
+
+   Elles répondent à une décision d'officier, que le calcul automatique ne
+   sait pas produire. Regroupées en tête de liste dans leur propre panneau,
+   elles ne se perdent plus au milieu du réapprovisionnement courant ; le
+   panneau porte l'ambre de la console, celui des missions automatiques
+   reste neutre pour ne pas lui disputer le regard.
+   ===================================================================== */
+
+.panel[data-kind="manual"] { border-color: rgba(232,163,61,.4); }
+.panel[data-kind="manual"] > .panel__head {
+  background: rgba(232,163,61,.07);
+  border-bottom-color: rgba(232,163,61,.3);
+}
+.panel[data-kind="manual"] > .panel__head h2 { color: var(--amber); }
+
+/* Hors du panneau — liste filtrée, engagements — la carte garde le signe
+   de son origine : une bordure tiède et une étiquette explicite. */
+.mission[data-origin="manual"] { border-color: rgba(232,163,61,.35); }
+.tag--manual { color: var(--amber); border-color: rgba(232,163,61,.4); }

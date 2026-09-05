@@ -19,7 +19,7 @@ export async function missionsView(ctx) {
     get(`/missions?station=${state.station}&direction=${state.direction}`),
   ]);
 
-  const body = h('div.grid.grid--missions');
+  const body = h('div.missions');
 
   const render = (list) => {
     clear(body);
@@ -31,7 +31,25 @@ export async function missionsView(ctx) {
     const tri = [...list].sort((a, b) =>
       PRIORITES.indexOf(a.priority) - PRIORITES.indexOf(b.priority) ||
       (b.target_qty - b.pledged_qty) - (a.target_qty - a.pledged_qty));
-    for (const m of tri) body.appendChild(missionCard(m, ctx));
+
+    // Une mission créée à la main répond à une décision d'officier — un
+    // convoi à monter, une pénurie annoncée — que la génération automatique
+    // ne sait pas deviner. Noyée dans les dizaines de missions de
+    // réapprovisionnement, elle passait inaperçue : elle a donc son propre
+    // bandeau, en tête de liste.
+    const manuelles = tri.filter((m) => !m.auto);
+    const autos = tri.filter((m) => m.auto);
+
+    if (!manuelles.length) {
+      body.appendChild(missionGrid(tri, ctx));
+      return;
+    }
+
+    body.appendChild(missionBand('manual', t('missions.manualTitle'),
+      t('missions.manualHint'), manuelles, ctx));
+    if (autos.length) {
+      body.appendChild(missionBand('auto', t('missions.autoTitle'), null, autos, ctx));
+    }
   };
 
   const onFilter = async () => {
@@ -70,6 +88,30 @@ export async function missionsView(ctx) {
     toolbar,
     body,
   );
+}
+
+/** Grille de cartes, telle quelle. */
+function missionGrid(list, ctx) {
+  const grid = h('div.grid.grid--missions');
+  for (const m of list) grid.appendChild(missionCard(m, ctx));
+  return grid;
+}
+
+/**
+ * Bandeau de missions : un titre, le nombre, puis les cartes.
+ *
+ * Même panneau que pour les routes, afin que la console n'ait qu'une façon
+ * de séparer ce qui vient d'un officier de ce que la machine a calculé. Le
+ * bandeau « manual » porte l'accent ambre ; celui des missions automatiques
+ * reste neutre pour ne pas lui faire concurrence.
+ */
+function missionBand(kind, title, hint, list, ctx) {
+  const bloc = panel(title, {
+    count: list.length,
+    tools: hint ? h('span.hint', hint) : null,
+  }, missionGrid(list, ctx));
+  bloc.dataset.kind = kind;
+  return bloc;
 }
 
 /**
@@ -112,7 +154,9 @@ function missionCard(m, ctx) {
     );
   }
 
-  return h('article.mission', { dataset: { priority: m.priority, dir: m.direction } },
+  return h('article.mission', {
+    dataset: { priority: m.priority, dir: m.direction, origin: m.auto ? 'auto' : 'manual' },
+  },
 
     h('header.mission__bar',
       h('span.mission__arrow', m.direction === 'export' ? '\u2191' : '\u2193'),
@@ -122,7 +166,9 @@ function missionCard(m, ctx) {
       palier ? h('span.mission__bonus', { dataset: { tier: palier } },
         t('mission.riskBonus', { v: dec(prime) })) : null,
       h('span.spacer'),
-      m.auto ? h('span.tag.tag--auto', t('mission.auto')) : null,
+      m.auto
+        ? h('span.tag.tag--auto', t('mission.auto'))
+        : h('span.tag.tag--manual', t('mission.manual')),
       h('span.mission__prio', t(`priority.${m.priority}`)),
       m.pledged_qty > 0 ? h('span.mission__pct', `${avancement}%`) : null,
     ),
