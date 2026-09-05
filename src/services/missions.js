@@ -17,6 +17,27 @@ import { broadcast } from './events.js';
  */
 const PLAFOND_ABSURDE = 5_000_000;
 
+/**
+ * Ce qu'il reste à couvrir sur une mission, en SQL.
+ *
+ * Deux tonnages entament l'objectif : celui que des pilotes se sont engagés
+ * à apporter, et celui déjà livré. Le second ne se déduit que des missions
+ * créées à la main, seules à porter un objectif fixé par un officier.
+ * L'objectif d'une mission automatique, lui, est recalculé à chaque relevé
+ * d'après le stock : les livraisons y sont déjà retranchées, les déduire
+ * une seconde fois viderait la mission d'un coup.
+ *
+ * Le fragment attend la table `missions` aliasée en `m`.
+ */
+const RESTE_A_COUVRIR = `
+  m.target_qty
+  - (SELECT COALESCE(SUM(c.pledged_qty), 0) FROM mission_claims c
+      WHERE c.mission_id = m.id AND c.status = 'in_progress')
+  - CASE WHEN m.auto = 1 THEN 0 ELSE
+      (SELECT COALESCE(SUM(c.delivered_qty), 0) FROM mission_claims c
+        WHERE c.mission_id = m.id AND c.status = 'delivered') END
+`;
+
 export const refreshAutoMissions = db.transaction(() => {
   // Objectif visé, et non seuil d'alerte.
   //
@@ -141,6 +162,12 @@ export function listOpenMissions({ stationId = null, direction = null, userId = 
         WHERE c.mission_id = m.id AND c.status = 'in_progress') AS pledged_qty,
       (SELECT COUNT(*) FROM mission_claims c
         WHERE c.mission_id = m.id AND c.status = 'in_progress') AS claim_count,
+      (SELECT COALESCE(SUM(c.delivered_qty), 0) FROM mission_claims c
+        WHERE c.mission_id = m.id AND c.status = 'delivered') AS delivered_qty,
+      -- Le restant se calcule ici et non dans la console : l'engagement, la
+      -- livraison et l'affichage doivent obéir à la même règle, qui n'a donc
+      -- à exister qu'une fois.
+      MAX(0, ${RESTE_A_COUVRIR}) AS remaining_qty,
       (SELECT c.id FROM mission_claims c
         WHERE c.mission_id = m.id AND c.status = 'in_progress' AND c.user_id = ?) AS my_claim_id
     FROM missions m
@@ -192,12 +219,9 @@ export function claimMission(missionId, userId, pledgedQty = 0) {
   // Plusieurs pilotes peuvent se partager une mission, mais pas au-delà du
   // besoin : sans ce contrôle, on pouvait s'engager sur une mission déjà
   // entièrement couverte et livrer pour rien.
-  const dejaEngage = db.prepare(`
-    SELECT COALESCE(SUM(pledged_qty), 0) AS total FROM mission_claims
-    WHERE mission_id = ? AND status = 'in_progress'
-  `).get(missionId).total;
-
-  const libre = mission.target_qty - dejaEngage;
+  const libre = db.prepare(`
+    SELECT MAX(0, ${RESTE_A_COUVRIR}) AS v FROM missions m WHERE m.id = ?
+  `).get(missionId).v;
   if (libre <= 0) {
     return { ok: false, error: 'Cette mission est déjà entièrement couverte.', full: true };
   }
@@ -281,12 +305,26 @@ export const deliverClaim = db.transaction((claimId, userId, quantity, note = nu
     WHERE station_id = ? AND item_id = ?
   `).get(claim.station_id, claim.item_id);
 
-  // Le besoin est couvert quand l'objectif est atteint, pas le seuil d'alerte :
-  // la soute pleine à l'import, vidée jusqu'au plancher à l'export.
-  const covered = !stock ? true
-    : claim.direction === 'export'
-      ? stock.effective_qty <= stock.min_stock
-      : stock.max_stock > 0 ? stock.effective_qty >= stock.max_stock : true;
+  // Une mission créée à la main se juge sur son propre objectif, et sur le
+  // cumul de ce qui a été livré dessus. La juger sur l'état de la soute la
+  // fermait au premier voyage : sans seuil réglé sur la marchandise — le cas
+  // ordinaire d'une mission ponctuelle — la soute était réputée pleine dès
+  // la première unité, et une commande de cinquante mille disparaissait
+  // après dix mille.
+  const livre = db.prepare(`
+    SELECT COALESCE(SUM(delivered_qty), 0) AS v FROM mission_claims
+    WHERE mission_id = ? AND status = 'delivered'
+  `).get(claim.mission_id).v;
+
+  // Pour une mission automatique, le besoin est couvert quand l'objectif est
+  // atteint, pas le seuil d'alerte : la soute pleine à l'import, vidée
+  // jusqu'au plancher à l'export.
+  const covered = !claim.auto
+    ? livre >= claim.target_qty
+    : !stock ? true
+      : claim.direction === 'export'
+        ? stock.effective_qty <= stock.min_stock
+        : stock.max_stock > 0 ? stock.effective_qty >= stock.max_stock : true;
   if (remaining === 0 && covered) {
     db.prepare(`UPDATE missions SET status='fulfilled', closed_at=datetime('now') WHERE id = ?`)
       .run(claim.mission_id);
@@ -637,6 +675,23 @@ export const cancelDelivery = db.transaction((claimId, actorId, { isOfficer = fa
   // Le besoin peut être redevenu ouvert : on laisse la génération
   // automatique statuer plutôt que de rouvrir la mission à l'aveugle.
   refreshAutoMissions();
+
+  // Une mission créée à la main, elle, n'est régénérée par personne : si
+  // c'est cette livraison qui l'avait terminée, elle doit rouvrir, sans quoi
+  // un officier devrait la ressaisir. On la laisse close si une autre mission
+  // ouverte a pris sa place entre-temps : l'index n'en admet qu'une par
+  // station, marchandise et sens.
+  db.prepare(`
+    UPDATE missions SET status = 'open', closed_at = NULL
+    WHERE id = ? AND auto = 0 AND status = 'fulfilled'
+      AND target_qty > (
+        SELECT COALESCE(SUM(c.delivered_qty), 0) FROM mission_claims c
+        WHERE c.mission_id = missions.id AND c.status = 'delivered')
+      AND NOT EXISTS (
+        SELECT 1 FROM missions o
+        WHERE o.station_id = missions.station_id AND o.item_id = missions.item_id
+          AND o.direction = missions.direction AND o.status = 'open')
+  `).run(claim.mission_id);
 
   return { ok: true, restored: claim.delivered_qty };
 });

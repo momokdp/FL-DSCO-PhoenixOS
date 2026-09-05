@@ -85,7 +85,13 @@ function missionsExploitables() {
       m.target_qty - (
         SELECT COALESCE(SUM(c.pledged_qty), 0) FROM mission_claims c
         WHERE c.mission_id = m.id AND c.status = 'in_progress'
-      ) AS open_qty
+      ) - CASE WHEN m.auto = 1 THEN 0 ELSE (
+        -- Une mission créée à la main garde l'objectif fixé par l'officier :
+        -- ce sont les livraisons cumulées qui l'entament. Celui d'une mission
+        -- automatique est recalculé d'après le stock, elles y sont déjà.
+        SELECT COALESCE(SUM(c.delivered_qty), 0) FROM mission_claims c
+        WHERE c.mission_id = m.id AND c.status = 'delivered'
+      ) END AS open_qty
     FROM missions m
     JOIN items    i  ON i.id  = m.item_id
     JOIN stations st ON st.id = m.station_id AND st.active = 1
