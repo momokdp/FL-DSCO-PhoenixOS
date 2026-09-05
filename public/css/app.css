@@ -744,7 +744,8 @@ a:hover { text-decoration: underline; }
 /* ========================================================== classement */
 .board__row {
   display: grid;
-  grid-template-columns: 2.2rem minmax(6rem, 1fr) minmax(4rem, 2fr) auto auto;
+  grid-template-columns:
+    2.2rem .6rem minmax(6rem, 1fr) minmax(4rem, 2fr) auto auto 4.2rem 6.5rem;
   align-items: center; gap: .85rem;
 }
 .board__name { color: var(--text); }
@@ -756,17 +757,76 @@ a:hover { text-decoration: underline; }
 .board__row.is-podium .board__rank { color: var(--amber); }
 .board__units { font-family: var(--mono); color: var(--amber); }
 
+/* Pastille de couleur : c'est elle qui relie la ligne à sa part du
+   camembert. Sans repère commun, les deux se lisent séparément. */
+.board__dot { width: .6rem; height: .6rem; border-radius: 50%; }
+
+.board__share {
+  font-family: var(--mono); font-size: .9rem; text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.board__payout {
+  font-family: var(--mono); font-size: .9rem; text-align: right;
+  font-variant-numeric: tabular-nums; color: var(--moss);
+}
+
+/* =====================================================================
+   Camembert de participation.
+
+   Le tableau dit qui mène, le camembert dit dans quelles proportions.
+   Les arcs sont des cercles en pointillé : un seul tiret par part, décalé
+   de la somme des parts précédentes.
+   ===================================================================== */
+.payout {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+.pie__wrap { position: relative; display: grid; place-items: center; }
+.pie { width: 100%; max-width: 200px; height: auto; display: block; }
+.pie circle { transition: stroke-dasharray .4s ease; }
+
+.pie__hub {
+  position: absolute; inset: 0;
+  display: grid; place-content: center; justify-items: center;
+  gap: .1rem; pointer-events: none; text-align: center;
+}
+.pie__sum {
+  font-family: var(--mono); font-size: 1.25rem; font-weight: 600;
+  color: var(--amber); font-variant-numeric: tabular-nums; line-height: 1;
+}
+.pie__unit { font-family: var(--mono); font-size: .7rem; color: var(--dim); }
+.pie__label {
+  font-family: var(--display); font-size: .62rem; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--dim); max-width: 6.5rem;
+}
+
+@media (max-width: 860px) {
+  .payout { grid-template-columns: 1fr; justify-items: center; }
+  .payout .board { width: 100%; }
+}
+
 /* ============================================================= langues */
 .langs { display: flex; gap: .25rem; }
 .langs .chip { padding: .15rem .45rem; font-size: .7rem; }
 .gate__langs { margin-top: 1.25rem; display: flex; justify-content: center; }
 
 /* ============================================================ adaptatif */
+@media (max-width: 900px) {
+  /* La barre et le nombre de runs sont du confort ; la part et les crédits
+     sont ce qu'on vient chercher. Ce sont les premiers à rester. */
+  .board__row {
+    grid-template-columns: 2.2rem .6rem minmax(5rem, 1fr) auto 4.2rem 6rem;
+  }
+  .board__bar, .board__runs { display: none; }
+}
+
 @media (max-width: 640px) {
   .mission__figures { grid-template-columns: repeat(2, 1fr); }
   .mission__needQty { font-size: 1.5rem; }
-  .board__row { grid-template-columns: 2rem 1fr auto; }
-  .board__bar, .board__runs { display: none; }
+  .board__row { grid-template-columns: 2rem .5rem 1fr 3.8rem 5.5rem; gap: .5rem; }
+  .board__bar, .board__runs, .board__units { display: none; }
 }
 
 /* =====================================================================
@@ -830,6 +890,12 @@ a:hover { text-decoration: underline; }
   margin-top: .5rem; padding-top: .7rem; border-top: 1px solid var(--seam);
 }
 .pot__stations .chip b { color: var(--amber); font-weight: 600; }
+.pot__pool { font-family: var(--mono); color: var(--amber); font-weight: 600; }
+
+/* Réglage de la part reversée : posé là où on en lit l'effet, pas dans un
+   écran de réglages qu'il faudrait quitter pour vérifier. */
+.pot__share { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.input--tiny { width: 4.5rem; padding: .2rem .35rem; font-size: .85rem; }
 
 @media (max-width: 640px) {
   .pot { grid-template-columns: 1fr; }

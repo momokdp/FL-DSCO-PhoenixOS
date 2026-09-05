@@ -116,6 +116,18 @@ const NF = new Intl.NumberFormat('fr-FR');
 export const num = (v) => NF.format(Math.round(Number(v) || 0));
 
 /**
+ * Part en pourcentage, à partir d'une fraction : 0.1234 donne « 12,3 % ».
+ *
+ * Une décimale suffit et une seule s'impose : à deux, la colonne cesse
+ * d'être lisible d'un coup d'oeil ; à zéro, deux pilotes proches
+ * affichent la même part.
+ */
+const PF = new Intl.NumberFormat('fr-FR', {
+  style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1,
+});
+export const pct = (v) => PF.format(Number(v) || 0);
+
+/**
  * Nombre décimal lisible : au plus quatre décimales, sans zéros inutiles.
  * Évite les « ×0.20000000298023224 » venus des flottants 32 bits de l'API.
  */

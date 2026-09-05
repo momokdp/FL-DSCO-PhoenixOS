@@ -8,7 +8,7 @@ import { broadcast } from '../services/events.js';
 import { importRecipesFromConfig } from '../services/recipeImport.js';
 import { config } from '../config.js';
 import { setThreshold, listThresholds, stationInventory } from '../services/stock.js';
-import { recentClaims, cancelDelivery, abandonClaim } from '../services/missions.js';
+import { recentClaims, cancelDelivery, abandonClaim, PAYOUT_SHARE_KEY } from '../services/missions.js';
 
 export const adminRouter = express.Router();
 
@@ -494,6 +494,26 @@ adminRouter.get('/settings', admin, (req, res) => {
 adminRouter.put('/settings/:key', admin, (req, res) => {
   setSetting(req.params.key, req.body?.value ?? '');
   audit(req.user.id, 'setting.updated', 'settings', null, { key: req.params.key });
+  ok(res);
+});
+
+/**
+ * Part de la cagnotte reversée aux pilotes.
+ *
+ * Réglable par un officier, et depuis le classement lui-même : c'est là
+ * qu'on lit la répartition, et le pourcentage n'a de sens qu'en regard des
+ * crédits qu'il produit. L'enfouir dans un écran de réglages obligerait à
+ * faire l'aller-retour pour vérifier l'effet du moindre changement.
+ */
+adminRouter.put('/payout-share', officer, (req, res) => {
+  const valeur = Number(req.body?.value);
+  if (!Number.isFinite(valeur) || valeur < 0 || valeur > 100) {
+    return fail(res, 400, 'La part reversée doit être un pourcentage entre 0 et 100.');
+  }
+  setSetting(PAYOUT_SHARE_KEY, Math.round(valeur * 100) / 100);
+  audit(req.user.id, 'payout.share', 'settings', null, { value: valeur });
+  // Le classement de tous les pilotes connectés change d'un coup.
+  broadcast('missions:changed', {});
   ok(res);
 });
 

@@ -4,7 +4,7 @@
 
 import {
   h, get, post, num, signed, ago, dateShort, gauge, toast, notifyError,
-  modal, confirmDialog, field, input, select, loading, empty, panel, clear, dec,
+  modal, confirmDialog, field, input, select, loading, empty, panel, clear, dec, put, pct,
 } from './ui.js';
 import { t, t2 } from './i18n.js';
 
@@ -810,9 +810,24 @@ function loopCard(b, ctx) {
 
 /* ========================================================== classement */
 
+/**
+ * Teintes du camembert.
+ *
+ * Huit couleurs distinctes, tirées de la palette de la console. Au-delà,
+ * les pilotes partagent le gris : un neuvième ton inventé ne se
+ * distinguerait plus du huitième, et la part concernée est de toute façon
+ * marginale.
+ */
+const TEINTES = ['#E8A33D', '#4EC9D9', '#6FBF73', '#D9553F', '#A98BD1', '#E3C86A', '#5A8FD6', '#C97BA0'];
+const teinte = (i) => TEINTES[i] || '#4E5C6B';
+
 export async function boardView(ctx) {
   const periode = ctx.boardPeriod ||= 'month';
-  const { rows, funds } = await get(`/leaderboard?period=${periode}`);
+  const { rows, funds, pool, payoutShare, totalPoints } = await get(`/leaderboard?period=${periode}`);
+
+  // Sans fonds de référence, il n'y a pas de cagnotte : on affiche les
+  // pourcentages, qui eux sont exacts, et rien qui ressemble à une somme.
+  const repartit = funds.hasBaseline && pool > 0;
 
   const table = h('div.board');
   if (!rows.length) {
@@ -821,13 +836,17 @@ export async function boardView(ctx) {
     const tete = rows[0].points || 1;
     rows.forEach((r, i) => table.appendChild(h('div.board__row', { class: i < 3 ? 'is-podium' : null },
       h('span.board__rank', String(i + 1).padStart(2, '0')),
+      h('span.board__dot', { style: `background:${teinte(i)}` }),
       h('strong.board__name', r.callsign || r.display_name),
       // Barre proportionnelle au meneur : le classement se lit sans comparer
       // mentalement des nombres à cinq chiffres.
-      h('span.board__bar', h('i', { style: `width:${Math.round((r.points / tete) * 100)}%` })),
+      h('span.board__bar', h('i', { style: `width:${Math.round((r.points / tete) * 100)}%;background:${teinte(i)}` })),
       h('span.board__runs', t2('board.runs', r.runs)),
       h('span.board__units', { title: t('board.unitsHauled', { v: num(r.units) }) },
         `${num(r.points)} ${t('common.points')}`),
+      h('span.board__share', pct(r.share)),
+      h('span.board__payout', { title: repartit ? t('board.payoutTitle') : null },
+        repartit ? `${num(r.payout)} cr` : '—'),
     )));
   }
 
@@ -835,7 +854,7 @@ export async function boardView(ctx) {
     h('div.head', h('span.eyebrow', t('board.eyebrow')), h('h1', t('board.title'))),
 
     // La cagnotte d'abord : c'est elle qui donne son sens au classement.
-    fundsBanner(funds),
+    fundsBanner(funds, { pool, payoutShare, ctx }),
 
     h('div.toolbar', h('div.tabs',
       ...[['month', t('board.month')], ['last', t('board.lastMonth')], ['year', t('board.year')]]
@@ -846,8 +865,13 @@ export async function boardView(ctx) {
         }, label))),
     ),
 
-    h('p.hint', { style: 'margin:0 0 1rem;max-width:64ch' }, t('board.explain')),
-    table,
+    h('p.hint', { style: 'margin:0 0 1rem;max-width:70ch' },
+      t('board.explain'), ' ', t('board.shareExplain')),
+
+    h('section.payout',
+      camembert(rows, { pool, repartit, totalPoints }),
+      table,
+    ),
   );
 }
 
@@ -858,7 +882,7 @@ export async function boardView(ctx) {
  * contre le premier relevé du mois. Tant qu'il n'existe pas, on affiche le
  * total sans prétendre connaître le gain.
  */
-function fundsBanner(funds) {
+function fundsBanner(funds, { pool, payoutShare, ctx }) {
   if (!funds) return null;
   return h('section.pot',
     h('div.pot__main',
@@ -871,9 +895,107 @@ function fundsBanner(funds) {
       h('span.hint', funds.hasBaseline
         ? `${t('board.funds')} : ${num(funds.total)} cr`
         : t('board.noBaseline')),
+      funds.hasBaseline && h('span.hint',
+        `${t('board.pool')} : `,
+        h('b.pot__pool', `${num(pool)} cr`)),
+      shareControl(payoutShare, ctx),
       h('span.hint', t('board.payoutNote')),
     ),
     h('div.pot__stations', funds.stations.map((s) =>
       h('span.chip', { title: s.name }, s.code, h('b', ` ${num(s.money)}`)))),
   );
 }
+
+/**
+ * Part reversée aux pilotes.
+ *
+ * Réglable depuis le classement, et par un officier seulement : c'est ici
+ * qu'on lit son effet, en crédits, sur chaque ligne. Un pilote voit la
+ * valeur sans pouvoir y toucher — elle explique le montant qu'on lui
+ * annonce.
+ */
+function shareControl(payoutShare, ctx) {
+  if (!estOfficier(ctx)) {
+    return h('span.hint', `${t('board.shareLabel')} : ${dec(payoutShare)} %`);
+  }
+
+  const champ = input({
+    type: 'number', name: 'value', min: 0, max: 100, step: 1,
+    value: payoutShare, class: 'input--num input--tiny',
+    'aria-label': t('board.shareLabel'),
+  });
+
+  return h('form.pot__share', {
+    onSubmit: async (e) => {
+      e.preventDefault();
+      try {
+        await put('/admin/payout-share', { value: Number(champ.value) });
+        toast(t('board.shareSaved'));
+        ctx.reload();
+      } catch (err) {
+        notifyError(err);
+      }
+    },
+  },
+  h('span.hint', t('board.shareLabel')),
+  champ,
+  h('span.hint', '%'),
+  h('button.btn.btn--ghost.btn--sm', { type: 'submit' }, t('common.save')),
+  );
+}
+
+const estOfficier = (ctx) => ctx.user?.role === 'officer' || ctx.user?.role === 'admin';
+
+/**
+ * Camembert de participation.
+ *
+ * Le tableau dit qui mène ; le camembert dit dans quelles proportions, ce
+ * qu'une colonne de pourcentages ne montre pas d'un coup d'oeil. C'est la
+ * figure sur laquelle se décide la répartition, donc elle porte au centre
+ * la somme à partager.
+ *
+ * Dessiné à la main plutôt qu'avec une bibliothèque : un arc de camembert
+ * est un cercle en pointillé dont on règle le tiret et le décalage, et la
+ * console n'a aucune étape de compilation à offrir à un paquet npm.
+ */
+function camembert(rows, { pool, repartit, totalPoints }) {
+  const R = 62, EPAISSEUR = 24, TOUR = 2 * Math.PI * R;
+  const parts = rows.filter((r) => r.share > 0);
+  if (!parts.length) return null;
+
+  let debut = 0;
+  const arcs = parts.map((r, i) => {
+    // Un cheveu de vide entre deux parts : sans lui, deux teintes voisines
+    // se touchent et la frontière disparaît.
+    const brut = TOUR * r.share;
+    const trait = Math.max(0, brut - (parts.length > 1 ? 1.5 : 0));
+    const arc = `<circle cx="80" cy="80" r="${R}" fill="none" stroke="${teinte(i)}"
+        stroke-width="${EPAISSEUR}"
+        stroke-dasharray="${trait.toFixed(2)} ${(TOUR - trait).toFixed(2)}"
+        stroke-dashoffset="${(-debut).toFixed(2)}"><title>${
+  echappe(`${r.callsign || r.display_name} — ${pct(r.share)}`)}</title></circle>`;
+    debut += brut;
+    return arc;
+  }).join('');
+
+  const svg = `<svg viewBox="0 0 160 160" class="pie" role="img"
+      aria-label="${echappe(t('board.pieAlt'))}">
+    <g transform="rotate(-90 80 80)">
+      <circle cx="80" cy="80" r="${R}" fill="none"
+              stroke="rgba(255,255,255,.05)" stroke-width="${EPAISSEUR}"/>
+      ${arcs}
+    </g>
+  </svg>`;
+
+  return h('div.pie__wrap', { html: svg },
+    h('div.pie__hub',
+      h('strong.pie__sum', repartit ? num(pool) : num(totalPoints)),
+      h('span.pie__unit', repartit ? 'cr' : t('common.points')),
+      h('span.pie__label', repartit ? t('board.pool') : t('board.pieShares')),
+    ),
+  );
+}
+
+/** Le camembert est posé en HTML brut : un indicatif de pilote y passe. */
+const echappe = (s) => String(s).replace(/[&<>"]/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

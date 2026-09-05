@@ -58,6 +58,58 @@ change en septembre. La répartition mensuelle des gains l'interdit.
 Pas de fenêtre glissante : la paye se fait le 1er du mois sur l'activité du
 mois écoulé. Une fenêtre de 30 jours ferait sortir des runs non encore payés.
 
+## La part d'un pilote se calcule, elle ne se stocke pas
+
+Le pourcentage de participation est la part des points du pilote dans le
+total de la période, et le montant qui lui revient ce pourcentage appliqué à
+la cagnotte. Rien de tout cela n'est écrit en base.
+
+C'est cohérent avec les points, eux figés : ce sont les points qui font
+autorité, et le reste s'en déduit. Stocker un pourcentage obligerait à
+recalculer toutes les lignes à chaque livraison, et à les recalculer encore
+à chaque relevé, puisque la cagnotte change toutes les dix minutes.
+
+Le total est pris sur **tous** les pilotes, pas sur les cinquante lignes
+affichées : sommer l'affichage gonflerait la part de chacun dès le
+cinquante-et-unième.
+
+## La cagnotte est une variation de fonds, jamais un solde
+
+`cagnotte = (fonds du jour − fonds du premier relevé de la période) × part
+reversée`.
+
+Le solde d'une station contient tout ce qu'elle possède, y compris ce
+qu'elle avait avant le mois. Le répartir reviendrait à distribuer la
+trésorerie. Seule la variation appartient au mois, et donc aux pilotes qui
+l'ont produite.
+
+Sur une période close — « mois dernier » — la clôture est le dernier relevé
+de la fenêtre, pas `station_status`, qui ne dit que le solde d'aujourd'hui.
+
+Sans relevé de référence, aucune somme n'est avancée : l'écran montre les
+pourcentages, exacts eux, et attend le premier relevé du mois.
+
+## Les crédits se répartissent à la plus forte décimale
+
+Arrondir chaque part séparément laisse quelques crédits orphelins : la somme
+des lignes ne retombe pas sur la cagnotte annoncée juste au-dessus, et
+l'officier qui vérifie à la main trouve un écart sans cause visible.
+
+On distribue donc les parts entières, puis les crédits restants aux plus
+fortes décimales, un par pilote. La somme des lignes est alors exactement la
+cagnotte.
+
+## La part reversée se règle depuis le classement
+
+`payout_share`, dans `settings`, en pourcentage, 100 par défaut. Réglable par
+un officier, et depuis l'écran où on en lit l'effet : un réglage enfoui
+ailleurs obligerait à faire l'aller-retour pour voir ce que 60 % donne en
+crédits.
+
+Elle est bornée à [0, 100] à la lecture comme à l'écriture. Une valeur
+illisible en base vaut 100 : mieux vaut une répartition complète qu'un écran
+qui n'annonce rien.
+
 ## Migrations : ne jamais retoucher un fichier déployé
 
 Une migration déjà appliquée est enregistrée dans `schema_migrations` et ne
