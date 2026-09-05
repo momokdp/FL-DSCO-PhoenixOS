@@ -21,6 +21,11 @@ export async function missionsView(ctx) {
 
   const body = h('div.missions');
 
+  // Ce qu'il reste vraiment à couvrir, livraisons déduites. Le serveur le
+  // calcule ; on garde le repli sur l'ancien calcul pour ne pas trier au
+  // hasard si le champ manque.
+  const reste = (m) => Math.max(0, m.remaining_qty ?? (m.target_qty - m.pledged_qty));
+
   const render = (list) => {
     clear(body);
     if (!list.length) {
@@ -30,7 +35,7 @@ export async function missionsView(ctx) {
     // Le plus urgent d'abord : c'est ce qu'un pilote qui décolle veut voir.
     const tri = [...list].sort((a, b) =>
       PRIORITES.indexOf(a.priority) - PRIORITES.indexOf(b.priority) ||
-      (b.target_qty - b.pledged_qty) - (a.target_qty - a.pledged_qty));
+      reste(b) - reste(a));
 
     // Une mission créée à la main répond à une décision d'officier — un
     // convoi à monter, une pénurie annoncée — que la génération automatique
@@ -122,10 +127,15 @@ function missionBand(kind, title, hint, list, ctx) {
  * reste neutre pour ne pas concurrencer ce signal.
  */
 function missionCard(m, ctx) {
-  const restant = Math.max(0, m.target_qty - m.pledged_qty);
+  // Le restant vient du serveur : sur une mission créée à la main, il tient
+  // compte de ce qui a déjà été livré, et pas seulement des engagements en
+  // cours. Le recalculer ici ferait réapparaître l'objectif entier dès qu'un
+  // pilote a livré sa part et quitté la liste des engagés.
+  const restant = Math.max(0, m.remaining_qty ?? (m.target_qty - m.pledged_qty));
+  const couvert = Math.max(0, m.target_qty - restant);
   const cible = m.direction === 'import' ? m.max_stock : m.min_stock;
   const avancement = m.target_qty > 0
-    ? Math.min(100, Math.round((m.pledged_qty / m.target_qty) * 100)) : 0;
+    ? Math.min(100, Math.round((couvert / m.target_qty) * 100)) : 0;
 
   const volume = Number(m.item_volume) > 0 ? Number(m.item_volume) : 1;
   const primeMission = Number(m.reward_multiplier) > 0 ? Number(m.reward_multiplier) : 1;
@@ -170,7 +180,7 @@ function missionCard(m, ctx) {
         ? h('span.tag.tag--auto', t('mission.auto'))
         : h('span.tag.tag--manual', t('mission.manual')),
       h('span.mission__prio', t(`priority.${m.priority}`)),
-      m.pledged_qty > 0 ? h('span.mission__pct', `${avancement}%`) : null,
+      couvert > 0 ? h('span.mission__pct', `${avancement}%`) : null,
     ),
 
     h('div.mission__body',
@@ -196,7 +206,10 @@ function missionCard(m, ctx) {
       figure(t('mission.inHold'), num(m.current_qty)),
       figure(t('mission.target'), num(cible)),
       figure(t('mission.volume'), `\u00d7${dec(volume)}`, null, t('mission.perUnit')),
-      figure(t('mission.pledged'), num(m.pledged_qty), m.pledged_qty >= m.target_qty ? 'ok' : null),
+      // Le tonnage déjà livré se lit sous l'engagé : sans lui, une mission
+      // entamée puis relâchée semblerait n'avoir jamais bougé.
+      figure(t('mission.pledged'), num(m.pledged_qty), restant <= 0 ? 'ok' : null,
+        m.delivered_qty > 0 ? t('mission.alreadyDelivered', { v: num(m.delivered_qty) }) : null),
     ),
 
     h('div.mission__reward',
@@ -239,7 +252,7 @@ const figure = (label, value, tone = null, sub = null) =>
 /* ------------------------------------------------------------- actions */
 
 async function claimFlow(m, ctx) {
-  const restant = Math.max(0, m.target_qty - m.pledged_qty);
+  const restant = Math.max(0, m.remaining_qty ?? (m.target_qty - m.pledged_qty));
   if (restant <= 0) { toast(t('mission.full'), 'err'); return; }
 
   // Le champ part de 0, et non du besoin entier : pré-remplir la totalité
