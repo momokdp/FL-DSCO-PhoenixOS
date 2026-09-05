@@ -151,6 +151,10 @@ export function listOpenMissions({ stationId = null, direction = null, userId = 
       AND (? IS NULL OR m.station_id = ?)
       AND (? IS NULL OR m.direction = ?)
     ORDER BY
+      -- Les missions ouvertes à la main d'abord : elles viennent d'une
+      -- décision d'officier et se perdaient au milieu du réapprovisionnement
+      -- automatique, bien plus nombreux.
+      m.auto,
       CASE m.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
       st.sort_order, i.name
   `).all(userId, stationId, stationId, direction, direction);
