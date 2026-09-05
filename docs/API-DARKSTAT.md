@@ -22,7 +22,8 @@ Source des stocks. Le rapprochement avec nos stations se fait sur `name`
   "shop_items": [ { "quantity": 284, "price": 16000,
                     "min_stock": 500, "max_stock": 500,
                     "nickname": "commodity_ship_part_avionics",
-                    "name": "Avionics Systems", "volume": 30 } ] }
+                    "name": "Avionics Systems",
+                    "volume": 30, "original_volume": 30 } ] }
 ```
 
 **Pièges avérés :**
@@ -33,9 +34,14 @@ Source des stocks. Le rapprochement avec nos stations se fait sur `name`
 - Des **homonymes** existent : `sparta_base` (vide) coexiste avec
   `sparta_complex` (réelle).
 - `volume` est un **flottant 32 bits** : 0,2 arrive en 0.20000000298023224.
-- Certaines marchandises ont des variantes suffixées `()`
-  (« Military Salvage () ») portant des volumes différents. La variante
-  **sans** parenthèses fait autorité.
+- `volume` et `original_volume` ne disent pas la même chose :
+  `original_volume` est le volume unitaire du bien, identique sur toutes les
+  bases ; `volume` est ce même volume une fois appliquée la compression de
+  soute propre à la base. Military Salvage vaut 1 en `original_volume` mais
+  tombe à 0,2 ou 0,4 sur certaines bases — 29 marchandises sont dans ce cas.
+  Pour un volume de **référence** (comparer l'effort d'une marchandise à
+  l'autre), c'est `original_volume` qu'il faut lire.
+- `original_volume` vaut 0 pour les biens hors commerce : prévoir un repli.
 - `shop_items` peut être `null` alors que `shop_items_map` est peuplé.
 
 ---
