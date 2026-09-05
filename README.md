@@ -22,6 +22,8 @@ paramètre depuis l'interface.
 - **Boucles de trade** : des circuits complets — charger chez un vendeur, livrer
   chez nous, recharger ce que nous produisons, revendre, revenir — classés au
   temps de vol réel et mis à l'échelle de la cale du pilote.
+- **Répartition des gains** : le pourcentage de participation de chaque pilote,
+  en camembert, et ce qu'il touchera à la fin du mois sur les fonds des stations.
 - **Gestion complète** depuis le site : stations, marchandises, routes, recettes,
   missions, rôles des pilotes.
 
@@ -173,6 +175,39 @@ bloquent encore une mission.
 Le run ne disparaît pas de l'historique du pilote : il y reste marqué annulé,
 avec le nom de l'officier et le motif saisi. Une ligne qui s'évaporerait sans
 explication ressemblerait à un bug.
+
+### Répartition des gains
+
+L'écran **Classement** ne se contente plus de ranger les pilotes : il dit à
+chacun ce qu'il touchera.
+
+Trois chiffres, dans cet ordre :
+
+1. **Gagné ce mois-ci** — ce que les stations ont pris depuis le premier
+   relevé du mois. C'est la variation des fonds, pas un chiffre d'affaires :
+   les achats de la station y sont déjà déduits.
+2. **Cagnotte à répartir** — la part de ce gain reversée aux pilotes.
+3. **Part de chaque pilote** — son pourcentage des points de mérite du mois,
+   et les crédits que ce pourcentage lui vaut.
+
+Le camembert donne les mêmes proportions d'un coup d'œil ; la pastille de
+couleur en tête de chaque ligne la relie à sa part.
+
+> Le montant affiché est une **estimation qui suit les fonds en direct**.
+> Les stations sont relevées toutes les dix minutes : la cagnotte monte
+> pendant le mois, et la part de chacun avec elle. Elle bouge aussi à chaque
+> livraison, puisqu'un run de plus dilue la part des autres.
+
+**Part reversée.** Un officier la règle depuis le classement lui-même, en
+pourcentage. Une station qui rend tout ce qu'elle gagne n'a plus de quoi
+racheter la marchandise du mois suivant : la valeur par défaut, 100 %,
+suppose que la trésorerie est tenue ailleurs. Les pilotes voient le
+pourcentage sans pouvoir le changer — il explique le montant qu'on leur
+annonce.
+
+**Tant qu'il n'y a pas de relevé de référence**, aucune somme n'est avancée :
+l'écran affiche les pourcentages, qui eux sont exacts, et le total des fonds.
+Le premier relevé du mois fait apparaître la cagnotte.
 
 ---
 
