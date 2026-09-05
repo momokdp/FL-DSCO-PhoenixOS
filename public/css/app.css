@@ -569,6 +569,9 @@ a:hover { text-decoration: underline; }
   display: grid; grid-template-columns: 1fr 90px auto; gap: .4rem; align-items: center;
 }
 .comp-row .btn { padding: .3rem .55rem; line-height: 1; }
+/* Un nom de marchandise long élargirait sa colonne au lieu d'être tronqué :
+   par défaut une case de grille ne se réduit pas sous son contenu. */
+.comp-row .input { min-width: 0; }
 
 /* ---------------------------------------------------- en-tête de section */
 .head { margin-bottom: 1.1rem; }
