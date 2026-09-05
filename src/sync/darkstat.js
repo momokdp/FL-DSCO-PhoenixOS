@@ -131,6 +131,22 @@ function indexerBases(pobs) {
 }
 
 /**
+ * Volume unitaire retenu pour une marchandise, arrondi au millionième.
+ *
+ * darkstat sert des flottants 32 bits : 0,2 arrive en 0,20000000298023224.
+ * Six décimales dépassent déjà largement la précision utile à une soute.
+ * On retient le premier candidat exploitable ; sans aucun, une unité vaut
+ * 1 point, faute de mieux (darkstat renvoie 0 pour les biens hors commerce).
+ */
+function volumeUnitaire(...candidats) {
+  for (const candidat of candidats) {
+    const v = Number(candidat);
+    if (Number.isFinite(v) && v > 0) return Math.round(v * 1e6) / 1e6;
+  }
+  return 1;
+}
+
+/**
  * Les marchandises arrivent tantôt dans « shop_items » (tableau), tantôt
  * dans « shop_items_map » (objet indexé). L'un des deux peut être null.
  */
@@ -221,36 +237,34 @@ function writeSnapshots(pobs, stamp = nowSql()) {
       let used = 0;
 
       for (const raw of shopItems) {
-        // darkstat expose plusieurs variantes d'une même marchandise, dont
-        // des doublons au nom suffixé « () » qui portent des volumes
-        // différents (Military Salvage : 0,2 / 0,4 contre 1). On les fond
-        // sous un seul nom, et seule la variante sans parenthèses fait
-        // autorité sur le volume.
+        // Certaines fiches darkstat suffixent le nom d'un « () » vide sans
+        // qu'il désigne un autre bien : on les fond sous un seul nom.
         const nomBrut = String(raw.name || '').trim();
         if (!nomBrut) continue;
-        const variante = /\(\s*\)\s*$/.test(nomBrut);
         const name = nomBrut.replace(/\s*\(\s*\)\s*$/, '').trim();
         if (!name) continue;
 
         const nickname = String(raw.nickname || '').trim() || null;
         const categorie = String(raw.category || 'commodity').trim() || 'commodity';
 
-        // darkstat expose le volume unitaire ; à défaut, une unité vaut 1.
-        // darkstat sert des flottants 32 bits : 0,2 arrive en
-        // 0,20000000298023224. On arrondit au millionième, bien au-delà de
-        // la précision utile pour un volume de cargaison.
-        const vol = Number(raw.volume ?? raw.original_volume);
-        const volume = Number.isFinite(vol) && vol > 0
-          ? Math.round(vol * 1e6) / 1e6
-          : 1;
+        // Deux volumes cohabitent dans shop_items, et ils ne disent pas la
+        // même chose :
+        //   • original_volume — le volume unitaire du bien, le même partout
+        //     (Military Salvage : 1) ;
+        //   • volume — ce même volume une fois appliquée la compression de
+        //     soute propre à la base (Military Salvage : 0,2 ou 0,4).
+        // items.volume sert à comparer l'effort de transport d'une
+        // marchandise à l'autre : c'est le volume de référence qu'il faut.
+        // Retenir « volume » laissait la dernière base relevée fixer le
+        // barème de tout le monde.
+        const volume = volumeUnitaire(raw.original_volume, raw.volume);
 
         let item = findItem.get(name);
         if (!item) {
           item = { id: insertItem.run(name, nickname, categorie, volume).lastInsertRowid };
         } else {
           if (nickname && !item.commodity_id) completerItem.run(nickname, item.id);
-          // Une variante « () » ne doit pas écraser le volume de référence.
-          if (!variante) majVolume.run(volume, item.id, volume);
+          majVolume.run(volume, item.id, volume);
         }
 
         const qty = Number(raw.quantity) || 0;
