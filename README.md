@@ -22,6 +22,9 @@ paramètre depuis l'interface.
 - **Boucles de trade** : des circuits complets — charger chez un vendeur, livrer
   chez nous, recharger ce que nous produisons, revendre, revenir — classés au
   temps de vol réel et mis à l'échelle de la cale du pilote.
+- **Hangar** : chaque pilote tient ses vaisseaux, choisis dans le catalogue du
+  jeu relevé sur darkstat. La soute vient du modèle, jamais d'une saisie, et
+  plafonne ce qu'un voyage peut livrer.
 - **Répartition des gains** : le pourcentage de participation de chaque pilote,
   en camembert, et ce qu'il touchera à la fin du mois sur les fonds des stations.
 - **Gestion complète** depuis le site : stations, marchandises, routes, recettes,
@@ -308,6 +311,8 @@ pas la machine ne protège de rien.
 - `SYNC_INTERVAL_MINUTES` — fréquence des relevés. Descendre sous 5 minutes
   sollicite l'API sans bénéfice réel.
 - `DISCORD_GUILD_ID` — restreint l'accès aux membres d'un serveur Discord donné.
+- `SHIPS_INTERVAL_HOURS` — fréquence du relevé du catalogue des vaisseaux
+  (24 par défaut). Il ne change qu'aux mises à jour du jeu.
 
 Côté pilote, **Mes runs** porte la cadence de rafraîchissement de l'écran :
 de 15 secondes à 5 minutes, ou coupée. Le réglage appartient au navigateur de
@@ -433,10 +438,12 @@ src/
     routes.js            meilleure base par mission
     loops.js             assemblage des circuits
     paths.js             temps de vol darkstat, groupés et mis en cache
+    ships.js             catalogue des vaisseaux, relevé une fois par jour
   services/
     stock.js             lecture des soutes
     missions.js          ouverture auto, prise, livraison, classement
     loops.js             circuits mis à l'échelle du vaisseau du pilote
+    hangar.js            vaisseaux des pilotes, soute lue sur le catalogue
     recipeImport.js      import du fichier de recettes Discovery
     events.js            diffusion temps réel
   routes/

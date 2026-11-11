@@ -1,5 +1,6 @@
 import { db, audit, nowSql, getSetting } from '../db/index.js';
 import { broadcast } from './events.js';
+import { shipForClaim, unitesTenables } from './hangar.js';
 
 /**
  * Régénère les missions automatiques à partir des seuils min_stock.
@@ -169,7 +170,13 @@ export function listOpenMissions({ stationId = null, direction = null, userId = 
       -- à exister qu'une fois.
       MAX(0, ${RESTE_A_COUVRIR}) AS remaining_qty,
       (SELECT c.id FROM mission_claims c
-        WHERE c.mission_id = m.id AND c.status = 'in_progress' AND c.user_id = ?) AS my_claim_id
+        WHERE c.mission_id = m.id AND c.status = 'in_progress' AND c.user_id = ?) AS my_claim_id,
+      -- La soute du vaisseau que le pilote a engagé : l'écran y borne la
+      -- quantité proposée à la livraison.
+      (SELECT sm.hold_size FROM mission_claims c
+         JOIN pilot_ships ps ON ps.id = c.ship_id
+         JOIN ship_models sm ON sm.nickname = ps.model_nick
+        WHERE c.mission_id = m.id AND c.status = 'in_progress' AND c.user_id = ?) AS my_ship_hold
     FROM missions m
     JOIN stations st ON st.id = m.station_id
     JOIN items    i  ON i.id  = m.item_id
@@ -184,7 +191,7 @@ export function listOpenMissions({ stationId = null, direction = null, userId = 
       m.auto,
       CASE m.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
       st.sort_order, i.name
-  `).all(userId, stationId, stationId, direction, direction);
+  `).all(userId, userId, stationId, stationId, direction, direction);
 
   const claimants = db.prepare(`
     SELECT c.mission_id, c.user_id, u.display_name, u.callsign, u.avatar, c.pledged_qty
@@ -207,8 +214,12 @@ export function listOpenMissions({ stationId = null, direction = null, userId = 
 }
 
 /** Un pilote s'engage sur une mission. Plusieurs pilotes peuvent coexister. */
-export function claimMission(missionId, userId, pledgedQty = 0) {
-  const mission = db.prepare(`SELECT * FROM missions WHERE id = ? AND status = 'open'`).get(missionId);
+export function claimMission(missionId, userId, pledgedQty = 0, shipId = null) {
+  const mission = db.prepare(`
+    SELECT m.*, i.volume AS item_volume
+    FROM missions m JOIN items i ON i.id = m.item_id
+    WHERE m.id = ? AND m.status = 'open'
+  `).get(missionId);
   if (!mission) return { ok: false, error: "Cette mission n'est plus ouverte." };
 
   const existing = db.prepare(`
@@ -235,11 +246,29 @@ export function claimMission(missionId, userId, pledgedQty = 0) {
     };
   }
 
-  const info = db.prepare(`
-    INSERT INTO mission_claims (mission_id, user_id, pledged_qty) VALUES (?, ?, ?)
-  `).run(missionId, userId, demande);
+  // Un engagement vaut un voyage, fait avec un vaisseau précis : c'est sa
+  // soute qui borne ce qu'on peut promettre, puis ce qu'on pourra livrer.
+  const choix = shipForClaim(userId, shipId);
+  if (!choix.ok) return choix;
+  const ship = choix.ship;
 
-  audit(userId, 'mission.claimed', 'missions', missionId, { pledged: demande });
+  if (ship) {
+    const tenable = unitesTenables(ship.hold, mission.item_volume);
+    if (demande > tenable) {
+      return {
+        ok: false,
+        error: `« ${ship.name} » n'emporte que ${tenable} unités de cette marchandise.`,
+        capacity: tenable,
+      };
+    }
+  }
+
+  const info = db.prepare(`
+    INSERT INTO mission_claims (mission_id, user_id, pledged_qty, ship_id) VALUES (?, ?, ?, ?)
+  `).run(missionId, userId, demande, ship?.id ?? null);
+
+  audit(userId, 'mission.claimed', 'missions', missionId,
+    { pledged: demande, ship: ship?.id ?? null });
   broadcast('missions:changed', { missionId });
   return { ok: true, claimId: info.lastInsertRowid };
 }
@@ -253,12 +282,15 @@ export const deliverClaim = db.transaction((claimId, userId, quantity, note = nu
     SELECT c.*, m.station_id, m.item_id, m.direction, m.target_qty, m.auto,
            m.status AS mission_status,
            m.reward_multiplier, i.volume AS item_volume, i.name AS item_name,
-           COALESCE(v.risk_bonus, 1) AS risk_bonus
+           COALESCE(v.risk_bonus, 1) AS risk_bonus,
+           ps.name AS ship_name, sm.hold_size AS ship_hold
     FROM mission_claims c
     JOIN missions m ON m.id = c.mission_id
     JOIN items i    ON i.id = m.item_id
     LEFT JOIN v_effective_stock v
            ON v.station_id = m.station_id AND v.item_id = m.item_id
+    LEFT JOIN pilot_ships ps ON ps.id = c.ship_id
+    LEFT JOIN ship_models sm ON sm.nickname = ps.model_nick
     WHERE c.id = ? AND c.status = 'in_progress'
   `).get(claimId);
 
@@ -272,6 +304,24 @@ export const deliverClaim = db.transaction((claimId, userId, quantity, note = nu
 
   const qty = Math.max(0, Math.round(Number(quantity) || 0));
   if (qty <= 0) return { ok: false, error: 'Indiquez la quantité réellement livrée.' };
+
+  // Le plafond : un voyage ne livre pas plus que la soute du vaisseau
+  // engagé. Sans lui, la quantité déclarée — donc les points et la part de
+  // cagnotte — n'avait aucune borne. La soute est lue maintenant, sur le
+  // catalogue, et non figée à l'engagement : c'est la valeur du jeu au
+  // moment du vol qui compte. Les engagements antérieurs au hangar n'ont
+  // pas de vaisseau et passent sans plafond, le temps de s'écouler.
+  if (claim.ship_hold != null) {
+    const tenable = unitesTenables(claim.ship_hold, claim.item_volume);
+    if (qty > tenable) {
+      return {
+        ok: false,
+        error: `« ${claim.ship_name} » n'emporte que ${tenable} unités de cette marchandise. `
+          + 'Pour un second voyage, reprenez la mission.',
+        capacity: tenable,
+      };
+    }
+  }
 
   const delta = claim.direction === 'import' ? qty : -qty;
 
@@ -376,6 +426,7 @@ export function abandonClaim(claimId, actorId, { isOfficer = false, reason = nul
 export function myClaims(userId) {
   return db.prepare(`
     SELECT c.id AS claim_id, c.pledged_qty, c.claimed_at,
+           ps.name AS ship_name, sm.hold_size AS ship_hold,
            i.volume AS item_volume, m.reward_multiplier,
            COALESCE(v.risk_bonus, 1) AS risk_bonus,
       v.flow_mode AS flow_mode,
@@ -392,6 +443,8 @@ export function myClaims(userId) {
     JOIN items i ON i.id = m.item_id
     LEFT JOIN v_effective_stock v
            ON v.station_id = m.station_id AND v.item_id = m.item_id
+    LEFT JOIN pilot_ships ps ON ps.id = c.ship_id
+    LEFT JOIN ship_models sm ON sm.nickname = ps.model_nick
     WHERE c.user_id = ? AND c.status = 'in_progress'
     ORDER BY c.claimed_at
   `).all(userId);

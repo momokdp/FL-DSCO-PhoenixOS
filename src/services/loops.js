@@ -16,22 +16,23 @@ import { config } from '../config.js';
 import { db } from '../db/index.js';
 import { CLASSES } from '../sync/paths.js';
 import { pointsSegment } from '../sync/loops.js';
+import { activeShip } from './hangar.js';
 
 export const CLASSE_PAR_DEFAUT = 'transport';
 
 /**
- * Cale retenue pour un pilote.
+ * Cale retenue pour un pilote : celle de son vaisseau actif.
  *
- * Tant qu'il n'a rien déclaré, on met les circuits à l'échelle d'une cale
+ * Tant que son hangar est vide, on met les circuits à l'échelle d'une cale
  * de référence et l'écran l'annonce : mieux vaut un chiffre affiché comme
  * approximatif qu'un écran vide en attendant un réglage.
  */
 export function caleDe(user) {
-  const declaree = Number(user?.cargo_capacity);
-  const valide = Number.isFinite(declaree) && declaree > 0;
+  const ship = user?.id != null ? activeShip(user.id) : null;
+  const valide = !!ship && ship.hold > 0;
   return {
-    cargo: valide ? Math.round(declaree) : config.loops.refCargo,
-    shipClass: CLASSES.includes(user?.ship_class) ? user.ship_class : CLASSE_PAR_DEFAUT,
+    cargo: valide ? ship.hold : config.loops.refCargo,
+    shipClass: ship && CLASSES.includes(ship.shipClass) ? ship.shipClass : CLASSE_PAR_DEFAUT,
     declaree: valide,
   };
 }
@@ -182,25 +183,4 @@ export function listLoops({ user, stationId = null, cargo = null, shipClass = nu
     computedAt: lignes[0]?.computed_at ?? null,
     loops: sorties,
   };
-}
-
-/**
- * Enregistre la cale du pilote.
- *
- * Bornée haut pour écarter une saisie absurde : le plus gros transport du
- * jeu reste très en deçà, et un chiffre démesuré ferait passer tous les
- * circuits pour illimités en écrasant les quantités encore à couvrir.
- */
-export function setShip(userId, { cargo, shipClass }) {
-  const brut = Number(cargo);
-  const cale = brut === null || brut === undefined || Number.isNaN(brut) || brut <= 0
-    ? null
-    : Math.min(100_000, Math.round(brut));
-
-  const classe = CLASSES.includes(shipClass) ? shipClass : null;
-
-  db.prepare('UPDATE users SET cargo_capacity = ?, ship_class = ? WHERE id = ?')
-    .run(cale, classe, userId);
-
-  return { ok: true, cargo: cale, shipClass: classe };
 }
