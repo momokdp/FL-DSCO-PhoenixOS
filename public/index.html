@@ -37,15 +37,16 @@
   </header>
 
   <nav class="rail" id="rail">
-    <a href="#/missions" data-nav="missions"><span class="rail__key">M</span><span class="rail__label">Missions</span></a>
-    <a href="#/mine"     data-nav="mine"><span class="rail__key">E</span><span class="rail__label">My runs</span><b id="mineBadge" class="rail__badge" hidden>0</b></a>
-    <a href="#/stations" data-nav="stations"><span class="rail__key">S</span><span class="rail__label">Holds</span></a>
-    <a href="#/recipes"  data-nav="recipes"><span class="rail__key">A</span><span class="rail__label">Armory</span></a>
-    <a href="#/routes"   data-nav="routes"><span class="rail__key">R</span><span class="rail__label">Routes</span></a>
-    <a href="#/loops"    data-nav="loops"><span class="rail__key">B</span><span class="rail__label">Loops</span></a>
-    <a href="#/board"    data-nav="board"><span class="rail__key">C</span><span class="rail__label">Standings</span></a>
-    <a href="#/hangar"   data-nav="hangar"><span class="rail__key">H</span><span class="rail__label">Hangar</span></a>
-    <a href="#/admin"    data-nav="admin" id="navAdmin" hidden><span class="rail__key">⚙</span><span class="rail__label">Manage</span></a>
+    <!-- Chaque entrée : un pictogramme, son libellé, puis la touche qui y mène. -->
+    <a href="#/missions" data-nav="missions"><svg class="rail__icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4"/></svg><span class="rail__label">Missions</span><kbd class="rail__key">M</kbd></a>
+    <a href="#/mine"     data-nav="mine"><svg class="rail__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3.5 6 1.2 1.2L7 4.9M3.5 12l1.2 1.2L7 10.9M3.5 18l1.2 1.2L7 16.9"/></svg><span class="rail__label">My runs</span><b id="mineBadge" class="rail__badge" hidden>0</b><kbd class="rail__key">E</kbd></a>
+    <a href="#/stations" data-nav="stations"><svg class="rail__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 7.5 9-4.5 9 4.5v9L12 21l-9-4.5z"/><path d="m3 7.5 9 4.5 9-4.5M12 12v9"/></svg><span class="rail__label">Holds</span><kbd class="rail__key">S</kbd></a>
+    <a href="#/recipes"  data-nav="recipes"><svg class="rail__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5 20.2 7.25v9.5L12 21.5l-8.2-4.75v-9.5z"/><circle cx="12" cy="12" r="3.2"/></svg><span class="rail__label">Armory</span><kbd class="rail__key">A</kbd></a>
+    <a href="#/routes"   data-nav="routes"><svg class="rail__icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="5.5" r="2.5"/><path d="M8 18.5h6a3.5 3.5 0 0 0 0-7h-4a3.5 3.5 0 0 1 0-7h6"/></svg><span class="rail__label">Routes</span><kbd class="rail__key">R</kbd></a>
+    <a href="#/loops"    data-nav="loops"><svg class="rail__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.5-4L4 8.5M4 4v4.5h4.5"/><path d="M4 13a8 8 0 0 0 14.5 4l1.5-1.5M20 20v-4.5h-4.5"/></svg><span class="rail__label">Loops</span><kbd class="rail__key">B</kbd></a>
+    <a href="#/board"    data-nav="board"><svg class="rail__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20v-8M12 20V4M19 20v-11"/><path d="M3 20.5h18"/></svg><span class="rail__label">Standings</span><kbd class="rail__key">C</kbd></a>
+    <a href="#/hangar"   data-nav="hangar"><svg class="rail__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5 19.5 20 12 16.5 4.5 20z"/><path d="M12 9.5v7"/></svg><span class="rail__label">Hangar</span><kbd class="rail__key">H</kbd></a>
+    <a href="#/admin"    data-nav="admin" id="navAdmin" hidden><svg class="rail__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h9M19 6h1M4 12h3M13 12h7M4 18h11M20 18h0"/><circle cx="16" cy="6" r="2.2"/><circle cx="10" cy="12" r="2.2"/><circle cx="17.5" cy="18" r="2.2"/></svg><span class="rail__label">Manage</span></a>
   </nav>
 
   <main class="stage" id="stage"></main>
