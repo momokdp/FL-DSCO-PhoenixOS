@@ -258,9 +258,13 @@ export const analyserRoutes = async () => {
     return { ok: false, error: 'Aucune donnée de marché exploitable.' };
   }
 
-  // Nom API de chaque station, pour écarter la route vers soi-même.
+  // Nickname de chaque station, pour écarter la route vers soi-même. Les
+  // offres sont comparées par nickname : `api_name` porte souvent le nom
+  // affiché, qui ne correspondait jamais et laissait la station se proposer
+  // à elle-même. Il ne sert plus que de repli avant le premier relevé.
   const nomApi = new Map(
-    db.prepare('SELECT id, api_name FROM stations').all().map((r) => [r.id, r.api_name])
+    db.prepare('SELECT id, api_name, api_nickname FROM stations').all()
+      .map((r) => [r.id, r.api_nickname || r.api_name])
   );
 
   const interdites = new Set(

@@ -406,12 +406,32 @@ adminRouter.post('/missions', officer, (req, res) => {
   }
 });
 
-adminRouter.delete('/missions/:id', officer, (req, res) => {
+/**
+ * Archive une mission et clôt ses engagements en cours.
+ *
+ * L'écran l'annonce à l'officier, et il le faut : un engagement resté actif
+ * sur une mission archivée se livrait encore, avec mouvement de stock et
+ * points à la clé. Le pilote retrouve la ligne dans son historique, avec
+ * l'officier et le motif.
+ */
+const archiverMission = db.transaction((missionId, officerId) => {
   const info = db.prepare(`
     UPDATE missions SET status='archived', closed_at=datetime('now') WHERE id = ? AND status = 'open'
-  `).run(req.params.id);
-  if (!info.changes) return fail(res, 404, 'Mission introuvable ou déjà close.');
-  audit(req.user.id, 'mission.archived', 'missions', Number(req.params.id));
+  `).run(missionId);
+  if (!info.changes) return null;
+
+  return db.prepare(`
+    UPDATE mission_claims
+    SET status='abandoned', closed_at=datetime('now'),
+        cancelled_by = ?, cancel_reason = 'Mission archivée'
+    WHERE mission_id = ? AND status = 'in_progress'
+  `).run(officerId, missionId).changes;
+});
+
+adminRouter.delete('/missions/:id', officer, (req, res) => {
+  const clos = archiverMission(Number(req.params.id), req.user.id);
+  if (clos === null) return fail(res, 404, 'Mission introuvable ou déjà close.');
+  audit(req.user.id, 'mission.archived', 'missions', Number(req.params.id), { claimsClosed: clos });
   broadcast('missions:changed', {});
   ok(res);
 });
@@ -497,7 +517,10 @@ adminRouter.put('/users/:id', admin, (req, res) => {
   const { role, active, callsign } = req.body || {};
 
   // Garde-fou : la console doit toujours conserver un administrateur actif.
-  if (target.role === 'admin' && (role && role !== 'admin' || active === false)) {
+  // Le formulaire envoie 0 ou 1, pas un booléen : ne tester que `false`
+  // laissait passer la désactivation du dernier administrateur.
+  const desactive = active !== undefined && active !== null && !active;
+  if (target.role === 'admin' && (role && role !== 'admin' || desactive)) {
     const others = db.prepare(`
       SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND active = 1 AND id != ?
     `).get(target.id).n;

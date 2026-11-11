@@ -205,6 +205,14 @@ function writeSnapshots(pobs, stamp = nowSql()) {
   const majNickname = db.prepare(
     'UPDATE stations SET api_nickname = ? WHERE id = ? AND (api_nickname IS NULL OR api_nickname <> ?)');
 
+  // Une marchandise retirée de la fiche d'une base n'est plus relevée : sa
+  // ligne gardait indéfiniment sa dernière quantité, et continuait d'ouvrir
+  // des missions sur un stock qui n'existe plus. Tout ce que ce relevé n'a
+  // pas réécrit pour la station est donc retiré. Les seuils réglés vivent
+  // dans une autre table : ils reprennent si la marchandise revient.
+  const purgerAbsentes = db.prepare(
+    'DELETE FROM stock_snapshots WHERE station_id = ? AND synced_at <> ?');
+
   const missing = [];   // station déclarée, aucune base correspondante
   const vides = [];     // base trouvée, mais sans aucune marchandise
   let stationsSeen = 0, rowsWritten = 0;
@@ -282,6 +290,11 @@ function writeSnapshots(pobs, stamp = nowSql()) {
         });
         rowsWritten++;
       }
+
+      // Jamais sur une fiche vide : darkstat rend parfois une base sans
+      // aucune marchandise faute de la renseigner, et l'on effacerait alors
+      // toute la soute sur une simple absence de données.
+      if (shopItems.length) purgerAbsentes.run(station.id, stamp);
 
       upsertStatus.run({
         station_id: station.id,

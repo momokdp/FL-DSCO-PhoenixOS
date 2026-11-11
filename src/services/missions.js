@@ -251,6 +251,7 @@ export function claimMission(missionId, userId, pledgedQty = 0) {
 export const deliverClaim = db.transaction((claimId, userId, quantity, note = null) => {
   const claim = db.prepare(`
     SELECT c.*, m.station_id, m.item_id, m.direction, m.target_qty, m.auto,
+           m.status AS mission_status,
            m.reward_multiplier, i.volume AS item_volume, i.name AS item_name,
            COALESCE(v.risk_bonus, 1) AS risk_bonus
     FROM mission_claims c
@@ -263,6 +264,11 @@ export const deliverClaim = db.transaction((claimId, userId, quantity, note = nu
 
   if (!claim) return { ok: false, error: "Cet engagement n'est plus actif." };
   if (claim.user_id !== userId) return { ok: false, error: "Cet engagement appartient à un autre pilote." };
+  // L'archivage clôt désormais les engagements ; ce refus couvre ceux restés
+  // actifs sur une mission archivée avant cela. Le pilote peut s'en désengager.
+  if (claim.mission_status === 'archived') {
+    return { ok: false, error: 'Cette mission a été archivée. Désengagez-vous pour la retirer de vos runs.' };
+  }
 
   const qty = Math.max(0, Math.round(Number(quantity) || 0));
   if (qty <= 0) return { ok: false, error: 'Indiquez la quantité réellement livrée.' };

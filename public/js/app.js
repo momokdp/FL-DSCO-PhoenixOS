@@ -104,17 +104,28 @@ function paintNav() {
 function paintIdentity() {
   const u = ctx.user;
   const role = t(`role.${u.role}`);
-  const avatar = u.avatar
-    ? `https://cdn.discordapp.com/avatars/${u.id}/${u.avatar}.png?size=64`
-    : null;
+  // Le serveur fournit déjà l'adresse complète de l'avatar : la recomposer
+  // ici, avec l'identifiant interne du pilote, donnait une adresse fausse.
+  const avatar = u.avatar || null;
+
+  // La déconnexion change l'état de la session : c'est un POST. Un simple
+  // lien partait en GET, que le serveur ne connaît pas — il rendait la
+  // console, session intacte.
+  const quitter = async () => {
+    try {
+      await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
+    } finally {
+      location.href = '/';
+    }
+  };
 
   clear(document.getElementById('whoami')).append(
     h('span.who__name', u.callsign || u.displayName || u.username),
     h('span.who__role', role),
     langSwitch(),
-    h('a.btn.btn--ghost.btn--sm', { href: '/auth/logout' }, t('nav.logout')),
+    h('button.btn.btn--ghost.btn--sm', { type: 'button', onClick: quitter }, t('nav.logout')),
   );
-  if (avatar) document.querySelector('.who').style.setProperty('--avatar', `url(${avatar})`);
+  if (avatar) document.querySelector('.who').style.setProperty('--avatar', `url("${avatar}")`);
 }
 
 function paintSync() {
