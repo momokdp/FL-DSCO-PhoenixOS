@@ -368,6 +368,8 @@ a:hover { text-decoration: underline; }
 
 .toolbar { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
 .toolbar .input { width: auto; min-width: 200px; }
+/* Assez large pour que l'invite de recherche se lise en entier. */
+.toolbar .input[type="search"] { min-width: 250px; }
 .spacer { margin-left: auto; }
 
 .chip {
