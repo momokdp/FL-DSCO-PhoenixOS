@@ -183,8 +183,8 @@ chacun ce qu'il touchera.
 
 Trois chiffres, dans cet ordre :
 
-1. **Gagné ce mois-ci** — ce que les stations ont pris depuis le premier
-   relevé du mois. C'est la variation des fonds, pas un chiffre d'affaires :
+1. **Gagné ce mois-ci** — ce que les stations ont pris depuis la clôture
+   du mois précédent. C'est la variation des fonds, pas un chiffre d'affaires :
    les achats de la station y sont déjà déduits.
 2. **Cagnotte à répartir** — la part de ce gain reversée aux pilotes.
 3. **Part de chaque pilote** — son pourcentage des points de mérite du mois,
@@ -207,7 +207,7 @@ annonce.
 
 **Tant qu'il n'y a pas de relevé de référence**, aucune somme n'est avancée :
 l'écran affiche les pourcentages, qui eux sont exacts, et le total des fonds.
-Le premier relevé du mois fait apparaître la cagnotte.
+Le premier relevé fait apparaître la cagnotte.
 
 ---
 
