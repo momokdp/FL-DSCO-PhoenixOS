@@ -12,6 +12,11 @@
   --ion:     #4EC9D9;
   --rust:    #D9553F;
   --moss:    #6FBF73;
+  /* Sens de circulation. Deux teintes prises hors de l'échelle de priorité
+     (rouille, ambre, ion, gris) : le sens ne doit jamais pouvoir se
+     confondre avec le liseré ou la jauge d'une mission. */
+  --inbound:  #9A94FF;
+  --outbound: #6FBF73;
   --text:    #C8D2DD;
   --muted:   #78889A;
   --dim:     #4E5C6B;
@@ -634,7 +639,6 @@ a:hover { text-decoration: underline; }
   letter-spacing: .12em; text-transform: uppercase;
 }
 .mission__way { color: var(--muted); font-weight: 600; }
-.mission[data-dir="export"] .mission__way { color: var(--ion); }
 
 .mission__prio { color: var(--muted); }
 .mission[data-priority="critical"] .mission__prio { color: var(--rust); font-weight: 700; }
@@ -736,7 +740,8 @@ a:hover { text-decoration: underline; }
   text-transform: uppercase; padding: .12rem .4rem;
   border: 1px solid var(--seam); border-radius: 2px; color: var(--muted);
 }
-.way--export { color: var(--ion); border-color: rgba(90,160,200,.4); }
+.way--import { color: var(--inbound);  border-color: color-mix(in srgb, var(--inbound) 45%, transparent); }
+.way--export { color: var(--outbound); border-color: color-mix(in srgb, var(--outbound) 45%, transparent); }
 
 .tag--out       { margin-left: .4rem; color: var(--ion); border-color: rgba(90,160,200,.35); }
 .tag--delivered { color: var(--moss); border-color: rgba(111,191,115,.4); }
@@ -936,37 +941,50 @@ a:hover { text-decoration: underline; }
 /* =====================================================================
    Sens de circulation : lisible d'un coup d'œil.
 
-   Le seul libellé « INBOUND / OUTBOUND » ne suffisait pas : les deux
-   cartes se ressemblaient trop. Le sens colore désormais tout le bandeau
-   et porte une flèche, tandis que la criticité garde le liseré latéral et
-   la jauge. Deux signaux distincts, sur deux supports distincts.
+   Le sens colore tout le bandeau et s'annonce dans une pastille pleine,
+   flèche comprise ; la criticité garde le liseré latéral et la jauge.
+   Deux signaux distincts, sur deux supports distincts.
+
+   Les deux sens partageaient d'abord des teintes froides et voisines, et
+   l'entrant reprenait l'ion de la priorité normale : sur une mission
+   entrante normale, bandeau, liseré et jauge de soute étaient du même
+   bleu, et l'on ne savait plus ce que la jauge indiquait. Le sens a donc
+   ses propres teintes (--inbound, --outbound), absentes de l'échelle de
+   priorité.
    ===================================================================== */
-.mission[data-dir="import"] .mission__bar {
-  background: linear-gradient(90deg, rgba(90,160,200,.20), rgba(90,160,200,.04));
-  border-bottom-color: rgba(90,160,200,.35);
+.mission[data-dir="import"] { --dir: var(--inbound); }
+.mission[data-dir="export"] { --dir: var(--outbound); }
+
+.mission[data-dir] .mission__bar {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--dir) 30%, transparent),
+    color-mix(in srgb, var(--dir) 9%, transparent));
+  border-top: 2px solid var(--dir);
+  border-bottom-color: color-mix(in srgb, var(--dir) 50%, transparent);
 }
-.mission[data-dir="export"] .mission__bar {
-  background: linear-gradient(90deg, rgba(111,191,115,.20), rgba(111,191,115,.04));
-  border-bottom-color: rgba(111,191,115,.35);
+
+/* Pastille pleine : flèche et libellé d'un seul bloc. */
+.mission__flow {
+  display: inline-flex; align-items: center; gap: .3rem;
+  padding: .12rem .55rem .12rem .35rem;
+  border-radius: 2px;
+  background: var(--dir, var(--muted)); color: var(--void);
+  font-size: .78rem; font-weight: 700; letter-spacing: .14em;
 }
+.mission__flow .mission__way { color: inherit; font-weight: inherit; }
 
 .mission__arrow {
   font-size: 1rem; line-height: 1; font-weight: 700;
   width: 1.15rem; height: 1.15rem; border-radius: 50%;
   display: inline-grid; place-items: center;
 }
-.mission[data-dir="import"] .mission__arrow {
-  color: var(--void); background: var(--ion);
-}
-.mission[data-dir="export"] .mission__arrow {
-  color: var(--void); background: var(--moss);
-}
-.mission[data-dir="import"] .mission__way { color: var(--ion); }
-.mission[data-dir="export"] .mission__way { color: var(--moss); }
+/* Dans la pastille, la flèche n'a plus besoin de son propre disque. */
+.mission__flow .mission__arrow { width: auto; height: auto; border-radius: 0; }
 
 /* Le sens marque aussi le bord opposé au liseré de criticité. */
-.mission[data-dir="import"] { box-shadow: inset -2px 0 0 rgba(90,160,200,.35); }
-.mission[data-dir="export"] { box-shadow: inset -2px 0 0 rgba(111,191,115,.35); }
+.mission[data-dir] {
+  box-shadow: inset -3px 0 0 color-mix(in srgb, var(--dir) 55%, transparent);
+}
 
 /* =====================================================================
    Prime de risque : l'intensité visuelle suit la valeur.
@@ -992,8 +1010,8 @@ a:hover { text-decoration: underline; }
 }
 .way--both { color: var(--amber); border-color: rgba(232,163,61,.4); }
 .route__base { color: var(--ion); }
-.mission__arrow.is-import { color: var(--void); background: var(--ion); }
-.mission__arrow.is-export { color: var(--void); background: var(--moss); }
+.mission__arrow.is-import { color: var(--void); background: var(--inbound); }
+.mission__arrow.is-export { color: var(--void); background: var(--outbound); }
 
 /* ---------------------------------------------------- boucles de trade */
 /*

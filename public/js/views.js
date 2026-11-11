@@ -169,8 +169,12 @@ function missionCard(m, ctx) {
   },
 
     h('header.mission__bar',
-      h('span.mission__arrow', m.direction === 'export' ? '\u2191' : '\u2193'),
-      h('span.mission__way', t(`dir.${m.direction}Short`)),
+      // Fl\u00e8che et libell\u00e9 dans une m\u00eame pastille pleine : le sens doit se
+      // lire avant tout le reste, sans d\u00e9pendre de la seule teinte du bandeau.
+      h('span.mission__flow',
+        h('span.mission__arrow', m.direction === 'export' ? '\u2191' : '\u2193'),
+        h('span.mission__way', t(`dir.${m.direction}Short`)),
+      ),
       // La prime décide souvent du choix du pilote : elle doit se voir avant
       // même qu'il lise le reste de la carte.
       palier ? h('span.mission__bonus', { dataset: { tier: palier } },
