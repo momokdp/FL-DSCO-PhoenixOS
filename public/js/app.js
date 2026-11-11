@@ -6,6 +6,7 @@ import { h, get, ago, clear, toast, loading, empty } from './ui.js';
 import { t, lang, setLang, languages } from './i18n.js';
 import { missionsView, mineView, stationsView, recipesView, routesView, loopsView, boardView } from './views.js';
 import { adminView } from './admin.js';
+import { startAutoRefresh } from './refresh.js';
 
 const ROUTES = {
   missions: { view: missionsView, key: 'nav.missions' },
@@ -56,6 +57,7 @@ async function boot() {
 
   window.addEventListener('hashchange', () => render(current()));
   connectStream();
+  startAutoRefresh(refreshAll);
   render(current());
 }
 
@@ -125,6 +127,33 @@ function paintSync() {
   pill.classList.toggle('is-stale', stale && ctx.sync?.last?.status !== 'error');
 }
 
+/* ------------------------------------------------- rafraîchissement */
+
+/**
+ * Un passage du rafraîchissement automatique : la fraîcheur du relevé,
+ * puis la vue affichée. Le rendu est silencieux — l'écran ne doit pas
+ * clignoter sur un rafraîchissement que le pilote n'a pas demandé.
+ */
+async function refreshAll() {
+  await refreshSync();
+  await render(current(), { silent: true });
+}
+
+/**
+ * Relit l'état de la dernière lecture darkstat. Sans cela, la pastille
+ * d'en-tête vieillissait à l'écran sans jamais apprendre qu'un relevé
+ * avait eu lieu : seul un F5 la remettait à l'heure.
+ */
+async function refreshSync() {
+  try {
+    const me = await get('/me');
+    if (me?.sync) {
+      ctx.sync = me.sync;
+      paintSync();
+    }
+  } catch { /* le prochain passage retentera */ }
+}
+
 /* ------------------------------------------------------------- routage */
 
 let token = 0;
@@ -189,15 +218,21 @@ function connectStream() {
   // sans que le pilote ait à le recharger.
   source.addEventListener('loops:changed', touch(['loops']));
   source.addEventListener('stations:changed', touch(['stations', 'admin']));
-  source.addEventListener('stock:changed', touch(['stations', 'missions', 'recipes']));
+  source.addEventListener('routes:changed', touch(['routes']));
 
-  source.addEventListener('sync:done', (e) => {
-    try { ctx.sync = { ...ctx.sync, lastSyncAt: JSON.parse(e.data).at }; } catch { /* ignore */ }
-    paintSync();
-    // Le relevé rapporte les fonds des stations : la cagnotte et donc le
-    // revenu estimé de chaque pilote bougent à chaque synchronisation.
-    if (['stations', 'missions', 'recipes', 'admin', 'board'].includes(current())) ctx.reload();
+  // Le serveur annonce « stock:updated » — c'est le nom émis par le relevé
+  // darkstat comme par les corrections d'officier. L'interface guettait
+  // « stock:changed » et « sync:done », que personne n'émet : les écrans de
+  // stock restaient en arrière jusqu'au F5 suivant.
+  // Le relevé rapporte aussi les fonds des stations : la cagnotte, et donc le
+  // revenu estimé de chaque pilote, bouge à chaque synchronisation.
+  source.addEventListener('stock:updated', () => {
+    refreshSync();
+    touch(['stations', 'missions', 'recipes', 'admin', 'board'])();
   });
+
+  // Un relevé en échec doit se voir dans l'en-tête sans attendre le suivant.
+  source.addEventListener('sync:error', () => { refreshSync(); });
 
   source.onerror = () => {
     /* EventSource se reconnecte seul ; on signale seulement une coupure durable. */

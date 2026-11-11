@@ -154,6 +154,15 @@ const DICT = {
     'mine.colWhen': 'When',
     'mine.colStatus': 'Status',
 
+    /* ------------------------------------------- rafraîchissement auto */
+    'refresh.label': 'Auto refresh',
+    'refresh.off': 'Off',
+    'refresh.seconds': 'every {v} s',
+    'refresh.minute': 'every minute',
+    'refresh.minutes': 'every {v} min',
+    'refresh.hint': 'Keeps the screen up to date on its own, no F5 needed. Pauses while a dialog is open, while you are typing, and while the tab sits in the background.',
+    'refresh.saved': 'Auto refresh: {v}.',
+
     'status.delivered': 'Delivered',
     'status.abandoned': 'Dropped',
     'status.cancelled': 'Cancelled',
@@ -415,6 +424,15 @@ const DICT = {
     'mine.colPoints': 'Points',
     'mine.colWhen': 'Quand',
     'mine.colStatus': 'État',
+
+    /* ------------------------------------------- rafraîchissement auto */
+    'refresh.label': 'Rafraîchissement auto',
+    'refresh.off': 'Désactivé',
+    'refresh.seconds': 'toutes les {v} s',
+    'refresh.minute': 'chaque minute',
+    'refresh.minutes': 'toutes les {v} min',
+    'refresh.hint': "Tient l'écran à jour tout seul, sans F5. En pause pendant qu'une fenêtre est ouverte, pendant une saisie, et tant que l'onglet reste en arrière-plan.",
+    'refresh.saved': 'Rafraîchissement : {v}.',
 
     'status.delivered': 'Livré',
     'status.abandoned': 'Abandonné',

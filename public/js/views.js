@@ -7,6 +7,7 @@ import {
   modal, confirmDialog, field, input, select, loading, empty, panel, clear, dec, put, pct,
 } from './ui.js';
 import { t, t2 } from './i18n.js';
+import { cadences, refreshSeconds, setRefreshSeconds } from './refresh.js';
 
 const PRIORITES = ['critical', 'high', 'normal', 'low'];
 
@@ -389,8 +390,31 @@ export async function mineView(ctx) {
 
   return h('div',
     h('div.head', h('span.eyebrow', t('mine.eyebrow')), h('h1', t('mine.title'))),
+    refreshControl(),
     enCours,
     passe,
+  );
+}
+
+/**
+ * Cadence de rafraîchissement, réglée par le pilote lui-même : c'est son
+ * écran, et selon qu'il attend une livraison ou relit son historique, il
+ * veut une console qui se tient à jour ou qui se tient tranquille.
+ */
+function refreshControl() {
+  const libelle = (s) => (s === 0 ? t('refresh.off')
+    : s < 60 ? t('refresh.seconds', { v: s })
+      : s === 60 ? t('refresh.minute')
+        : t('refresh.minutes', { v: s / 60 }));
+
+  return h('div.toolbar',
+    h('label.field.field--inline',
+      h('span', t('refresh.label')),
+      select(cadences.map((s) => ({ value: s, label: libelle(s) })), {
+        value: refreshSeconds(),
+        onChange: (e) => toast(t('refresh.saved', { v: libelle(setRefreshSeconds(e.target.value)) })),
+      })),
+    h('em.hint', t('refresh.hint')),
   );
 }
 

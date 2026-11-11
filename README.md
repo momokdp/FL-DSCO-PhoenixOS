@@ -309,6 +309,10 @@ pas la machine ne protège de rien.
   sollicite l'API sans bénéfice réel.
 - `DISCORD_GUILD_ID` — restreint l'accès aux membres d'un serveur Discord donné.
 
+Côté pilote, **Mes runs** porte la cadence de rafraîchissement de l'écran :
+de 15 secondes à 5 minutes, ou coupée. Le réglage appartient au navigateur de
+chaque pilote et n'a aucun effet sur les autres.
+
 ---
 
 ---
@@ -444,6 +448,7 @@ public/
     ui.js                requêtes, modales, notifications, jauge
     views.js             vues pilote
     admin.js             console de gestion
+    refresh.js           cadence de rafraîchissement, réglée par le pilote
     app.js               routage et flux temps réel
 ```
 

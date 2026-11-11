@@ -287,3 +287,27 @@ Missions, routes et composants de recette se choisissent maintenant dans la
 liste connue, et le serveur refuse ce qu'il ne connaît pas. La liste
 s'alimente toute seule au relevé ; **Gestion → Marchandises** reste le seul
 endroit où l'on en crée une à la main, quand l'API ne la sert pas encore.
+
+## Le flux pousse, un minuteur rattrape
+
+Le serveur annonce ses changements sur `/api/events`. L'interface guettait
+pourtant deux noms que personne n'émet — `stock:changed` et `sync:done`,
+quand le serveur diffuse `stock:updated` — et la pastille « dernier relevé »
+vieillissait à l'écran sans jamais apprendre qu'un relevé avait eu lieu. Les
+noms sont alignés, et `routes:changed` est désormais écouté lui aussi.
+
+Aligner les noms ne suffit pas : un proxy qui met les flux longs en tampon,
+une coupure de réseau ou une passe d'analyse silencieuse laissent l'écran en
+arrière, et le pilote n'a que F5. Un minuteur double donc le flux : à chaque
+échéance il relit la fraîcheur du relevé, puis la vue affichée.
+
+La cadence est réglée par le pilote dans **Mes runs** — de 15 secondes à
+5 minutes, une minute par défaut, ou coupée — et mémorisée dans son
+navigateur, comme la langue. C'est son écran : selon qu'il attend une
+livraison ou relit son historique, il veut une console qui se tient à jour
+ou qui se tient tranquille.
+
+Un passage est **sauté, jamais annulé**, tant qu'une fenêtre est ouverte,
+qu'un champ est rempli ou que l'onglet est en arrière-plan : un rendu neuf
+effacerait une saisie en cours, et un onglet caché n'a personne à informer.
+Le retour au premier plan, lui, rafraîchit tout de suite.
