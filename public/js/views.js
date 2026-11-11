@@ -11,10 +11,25 @@ import { cadences, refreshSeconds, setRefreshSeconds } from './refresh.js';
 
 const PRIORITES = ['critical', 'high', 'normal', 'low'];
 
+/**
+ * Met un texte à plat pour la recherche : sans casse ni accents, afin que
+ * « helium » trouve « Hélium » et que le pilote tape sans y penser.
+ */
+const aPlat = (texte) => String(texte ?? '')
+  .normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+
 /* ===================================================== tableau de missions */
 
 export async function missionsView(ctx) {
   const state = ctx.filters ||= { station: '', direction: '' };
+  state.search ??= '';
+
+  // Un rechargement poussé par le serveur remplace toute la vue : si le
+  // pilote était en train de taper sa recherche, on lui rend le curseur là
+  // où il l'avait, sinon chaque livraison d'un autre couperait sa saisie.
+  const ancien = document.activeElement;
+  const enSaisie = ancien?.dataset?.role === 'mission-search';
+
   const [stations, missions] = await Promise.all([
     get('/stations'),
     get(`/missions?station=${state.station}&direction=${state.direction}`),
@@ -27,10 +42,26 @@ export async function missionsView(ctx) {
   // hasard si le champ manque.
   const reste = (m) => Math.max(0, m.remaining_qty ?? (m.target_qty - m.pledged_qty));
 
-  const render = (list) => {
+  // Dernière liste reçue du serveur : la recherche par marchandise la
+  // filtre sur place, sans refaire d'appel à chaque lettre tapée.
+  let recues = missions;
+
+  const render = (toutes = recues) => {
+    recues = toutes;
     clear(body);
-    if (!list.length) {
+    if (!toutes.length) {
       body.appendChild(empty(t('missions.empty'), t('missions.emptyHint')));
+      return;
+    }
+    // Chaque mot tapé doit se retrouver dans le nom : « ore gold » trouve
+    // « Gold Ore » sans imposer l'ordre des mots.
+    const mots = aPlat(state.search).split(/\s+/).filter(Boolean);
+    const list = mots.length
+      ? toutes.filter((m) => { const nom = aPlat(m.item_name); return mots.every((w) => nom.includes(w)); })
+      : toutes;
+    if (!list.length) {
+      body.appendChild(empty(t('missions.noMatch'),
+        t('missions.noMatchHint', { q: state.search.trim() })));
       return;
     }
     // Le plus urgent d'abord : c'est ce qu'un pilote qui décolle veut voir.
@@ -65,6 +96,15 @@ export async function missionsView(ctx) {
     } catch (e) { notifyError(e); }
   };
 
+  const search = input({
+    type: 'search',
+    placeholder: t('missions.search'),
+    'aria-label': t('missions.search'),
+    value: state.search,
+    dataset: { role: 'mission-search' },
+    onInput: (e) => { state.search = e.target.value; render(); },
+  });
+
   const toolbar = h('div.toolbar',
     select(
       [{ value: '', label: t('missions.allStations') },
@@ -86,9 +126,24 @@ export async function missionsView(ctx) {
           },
         }, label)),
     ),
+    search,
   );
 
   render(missions);
+
+  if (enSaisie) {
+    const debut = ancien.selectionStart;
+    const fin = ancien.selectionEnd;
+    // Le champ n'est posé à l'écran qu'après le retour de la vue : on attend
+    // ce moment. Un minuteur plutôt qu'une image d'animation, que le
+    // navigateur suspend dès que l'onglet passe à l'arrière-plan.
+    setTimeout(() => {
+      if (!search.isConnected) return;
+      search.focus();
+      try { search.setSelectionRange(debut, fin); } catch { /* sans conséquence */ }
+    }, 0);
+  }
+
   return h('div',
     h('div.head', h('span.eyebrow', t('missions.eyebrow')), h('h1', t('missions.title'))),
     toolbar,
