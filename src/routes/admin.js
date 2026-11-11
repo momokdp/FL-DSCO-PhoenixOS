@@ -8,7 +8,9 @@ import { broadcast } from '../services/events.js';
 import { importRecipesFromConfig } from '../services/recipeImport.js';
 import { config } from '../config.js';
 import { setThreshold, listThresholds, stationInventory } from '../services/stock.js';
-import { recentClaims, cancelDelivery, abandonClaim, PAYOUT_SHARE_KEY } from '../services/missions.js';
+import {
+  recentClaims, cancelDelivery, abandonClaim, PAYOUT_SHARE_KEY, refreshAutoMissions,
+} from '../services/missions.js';
 
 export const adminRouter = express.Router();
 
@@ -101,6 +103,8 @@ adminRouter.put('/stations/:id', officer, (req, res) => {
       existing.id
     );
     audit(req.user.id, 'station.updated', 'stations', existing.id);
+    // Une station désactivée ne porte plus de mission automatique.
+    refreshAutoMissions();
     broadcast('stations:changed', {});
     ok(res);
   } catch (e) {
@@ -433,6 +437,9 @@ adminRouter.delete('/missions/:id', officer, (req, res) => {
   if (clos === null) return fail(res, 404, 'Mission introuvable ou déjà close.');
   audit(req.user.id, 'mission.archived', 'missions', Number(req.params.id), { claimsClosed: clos });
   broadcast('missions:changed', {});
+  // La mission manuelle faisait autorité : une fois archivée, le besoin
+  // automatique qu'elle masquait peut rouvrir.
+  refreshAutoMissions();
   ok(res);
 });
 
@@ -480,6 +487,7 @@ adminRouter.post('/claims/:id/cancel', officer, (req, res) => {
     audit(req.user.id, 'mission.cancelled', 'mission_claims', claim.id,
       { previous: claim.status, reason: motif });
   }
+  refreshAutoMissions();
   broadcast('stock:updated', {});
   broadcast('missions:changed', {});
   ok(res, result);
@@ -494,6 +502,7 @@ adminRouter.post('/stock/adjust', officer, (req, res) => {
     VALUES (?, ?, ?, 'correction', ?, ?, ?)
   `).run(num(station_id), num(item_id), num(delta), req.user.id, str(note), nowSql());
   audit(req.user.id, 'stock.adjusted', 'stations', num(station_id), { item_id, delta });
+  refreshAutoMissions();
   broadcast('stock:updated', { stationId: num(station_id) });
   ok(res);
 });
@@ -645,6 +654,7 @@ adminRouter.put('/stations/:id/thresholds/:itemId', officer, (req, res) => {
 
   // Les seuils pilotent l'ouverture automatique des missions : le tableau
   // des pilotes doit refléter le changement sans attendre le prochain relevé.
+  refreshAutoMissions();
   broadcast('stock:updated', { station: station.id });
   broadcast('missions:changed', {});
 

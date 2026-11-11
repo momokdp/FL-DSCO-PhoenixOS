@@ -252,8 +252,13 @@ export function meilleureOffre(offres, direction, interdites, exclure = null) {
   return meilleuresOffres(offres, direction, interdites, exclure, 1)[0] ?? null;
 }
 
-export const analyserRoutes = async () => {
-  const marche = await lireMarche();
+/**
+ * `marcheLu` est le relevé de marché déjà fait par la passe horaire, qui le
+ * partage avec les boucles. Sans lui — analyse lancée seule depuis
+ * l'administration — le marché est lu ici.
+ */
+export const analyserRoutes = async (marcheLu = null) => {
+  const marche = marcheLu ?? await lireMarche();
   if (!marche.size) {
     return { ok: false, error: 'Aucune donnée de marché exploitable.' };
   }
