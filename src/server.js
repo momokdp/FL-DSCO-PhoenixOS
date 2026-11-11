@@ -3,12 +3,12 @@ import express from 'express';
 import helmet from 'helmet';
 import session from 'express-session';
 import rateLimit from 'express-rate-limit';
-import connectSqlite3 from 'connect-sqlite3';
 
 import { config, ROOT } from './config.js';
 import { migrate, db } from './db/index.js';
 import { authRouter } from './auth/discord.js';
 import { loadUser, requireAuth, requireRole } from './auth/middleware.js';
+import { SqliteSessionStore } from './auth/sessionStore.js';
 import { apiRouter } from './routes/api.js';
 import { adminRouter } from './routes/admin.js';
 import { startSyncWorker, stopSyncWorker } from './sync/darkstat.js';
@@ -30,7 +30,6 @@ try {
 }
 
 const app = express();
-const SQLiteStore = connectSqlite3(session);
 
 app.set('trust proxy', 1); // derrière IIS / ARR
 
@@ -60,7 +59,8 @@ app.use(express.json({ limit: '256kb' }));
 app.use(express.urlencoded({ extended: false }));
 
 app.use(session({
-  store: new SQLiteStore({ db: 'sessions.sqlite', dir: config.dataDir }),
+  // Construit ici, donc après migrate() : la table `sessions` existe.
+  store: new SqliteSessionStore(db),
   secret: config.session.secret,
   resave: false,
   saveUninitialized: false,
