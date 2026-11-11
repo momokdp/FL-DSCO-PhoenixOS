@@ -113,13 +113,15 @@ function missionsExploitables() {
  * nombre de candidats ; on ne mesure les retours qu'entre les meilleurs
  * segments de chaque bord.
  */
-export const analyserBoucles = async () => {
+export const analyserBoucles = async (marcheLu = null) => {
   const missions = missionsExploitables();
   if (!missions.length) {
     return { ok: true, stations: 0, boucles: 0, note: 'Aucune mission exploitable.' };
   }
 
-  const marche = await lireMarche();
+  // Le relevé de la passe horaire, s'il a été fourni : le même que celui
+  // des routes, pour ne pas interroger darkstat deux fois de suite.
+  const marche = marcheLu ?? await lireMarche();
   if (!marche.size) {
     return { ok: false, error: 'Aucune donnée de marché exploitable.' };
   }

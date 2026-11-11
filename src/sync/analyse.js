@@ -21,7 +21,7 @@
    ===================================================================== */
 
 import { config } from '../config.js';
-import { analyserRoutes } from './routes.js';
+import { analyserRoutes, lireMarche } from './routes.js';
 import { analyserBoucles } from './loops.js';
 
 let minuteur = null;
@@ -35,8 +35,14 @@ let minuteur = null;
 export async function analyserMarche() {
   const bilan = {};
 
+  // Un seul relevé pour les deux calculs. Chacun lisait le marché de son
+  // côté : deux téléchargements complets, coup sur coup, du même contenu.
+  // `lireMarche` ne rejette pas : injoignable, darkstat donne un marché
+  // vide, que chaque calcul signale à sa manière.
+  const marche = await lireMarche();
+
   try {
-    const r = await analyserRoutes();
+    const r = await analyserRoutes(marche);
     bilan.routes = r;
     if (r.ok) console.log(`[routes] ${r.trouvees}/${r.analysees} route(s) suggérée(s)`);
     else console.warn(`[routes] ${r.error}`);
@@ -46,7 +52,7 @@ export async function analyserMarche() {
   }
 
   try {
-    const b = await analyserBoucles();
+    const b = await analyserBoucles(marche);
     bilan.boucles = b;
     if (b.ok) {
       console.log(`[boucles] ${b.boucles} circuit(s) sur ${b.stations} station(s)` +

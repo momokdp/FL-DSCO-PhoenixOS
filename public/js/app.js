@@ -217,9 +217,23 @@ async function refreshBadge() {
 function connectStream() {
   const source = new EventSource('/api/events');
 
+  // Une livraison émet coup sur coup « missions:changed » et
+  // « stock:updated » : rechargée à chaque événement, la vue était relue
+  // deux fois de suite par tous les pilotes connectés. Les événements d'une
+  // même rafale ne valent qu'un rechargement.
+  let rafale = null;
+  const recharger = () => {
+    clearTimeout(rafale);
+    rafale = setTimeout(() => {
+      rafale = null;
+      if (document.getElementById('modal').hidden === false) return;
+      ctx.reload();
+    }, 250);
+  };
+
   const touch = (routes) => () => {
     if (document.getElementById('modal').hidden === false) return;
-    if (routes.includes(current())) ctx.reload();
+    if (routes.includes(current())) recharger();
   };
 
   // Le classement suit les livraisons : une part de cagnotte annoncée à un

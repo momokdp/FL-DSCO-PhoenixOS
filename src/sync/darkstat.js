@@ -1,6 +1,7 @@
 import { config } from '../config.js';
 import { db, nowSql, setSetting } from '../db/index.js';
 import { broadcast } from '../services/events.js';
+import { refreshAutoMissions } from '../services/missions.js';
 
 let timer = null;
 let running = false;
@@ -39,6 +40,16 @@ export async function syncNow({ trigger = 'auto' } = {}) {
     );
 
     setSetting('last_sync_at', nowSql());
+
+    // Le relevé vient de changer les stocks : les missions automatiques se
+    // recalculent ici, plus à chaque lecture du tableau. Un échec de ce
+    // recalcul ne doit pas faire passer pour raté un relevé qui a réussi.
+    try {
+      refreshAutoMissions();
+    } catch (err) {
+      console.error('[missions] recalcul après relevé :', err.message);
+    }
+
     broadcast('stock:updated', { stations: result.stationsSeen, rows: result.rowsWritten });
     return { ok: true, ...result };
 

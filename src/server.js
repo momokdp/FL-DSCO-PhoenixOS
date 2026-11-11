@@ -48,6 +48,14 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
 }));
 
+// Les fichiers statiques passent avant la session : feuille de style et
+// scripts n'ont pas d'identité à vérifier, et chacun coûtait sinon une
+// lecture de session puis une lecture de l'utilisateur en base.
+app.use(express.static(path.join(ROOT, 'public'), {
+  maxAge: config.env === 'production' ? '1h' : 0,
+  index: false,
+}));
+
 app.use(express.json({ limit: '256kb' }));
 app.use(express.urlencoded({ extended: false }));
 
@@ -80,11 +88,6 @@ app.use('/api', rateLimit({
 app.use('/auth', authRouter);
 app.use('/api', apiRouter);
 app.use('/api/admin', requireAuth, requireRole('officer'), adminRouter);
-
-app.use(express.static(path.join(ROOT, 'public'), {
-  maxAge: config.env === 'production' ? '1h' : 0,
-  index: false,
-}));
 
 app.get('/healthz', (_req, res) => {
   const stations = db.prepare('SELECT COUNT(*) AS n FROM stations WHERE active = 1').get().n;

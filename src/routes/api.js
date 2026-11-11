@@ -31,8 +31,12 @@ apiRouter.get('/stations/:id/inventory', requireAuth, (req, res) => {
 });
 
 // ---------------------------------------------------------------- missions
+// Une lecture ne recalcule rien. Les missions automatiques sont refaites là
+// où le stock ou les seuils changent — relevé, livraison, désengagement,
+// réglage d'officier — et par le rappel périodique de `server.js`. Les
+// recalculer ici ouvrait une transaction d'écriture à chaque rafraîchissement
+// de chaque pilote, pour retrouver presque toujours le même résultat.
 apiRouter.get('/missions', requireAuth, (req, res) => {
-  refreshAutoMissions();
   res.json(listOpenMissions({
     stationId: int(req.query.station),
     direction: req.query.direction || null,
@@ -51,11 +55,17 @@ apiRouter.post('/missions/:id/claim', requireAuth, (req, res) => {
 
 apiRouter.post('/claims/:id/deliver', requireAuth, (req, res) => {
   const result = deliverClaim(Number(req.params.id), req.user.id, req.body?.quantity, req.body?.note);
+  // La livraison déplace le stock : l'objectif des missions automatiques
+  // de cette marchandise doit suivre avant la prochaine lecture.
+  if (result.ok) refreshAutoMissions();
   res.status(result.ok ? 200 : 409).json(result);
 });
 
 apiRouter.post('/claims/:id/abandon', requireAuth, (req, res) => {
   const result = abandonClaim(Number(req.params.id), req.user.id);
+  // Une mission automatique dont le besoin est comblé ne reste ouverte que
+  // tant qu'un pilote y est engagé : son départ peut la clore.
+  if (result.ok) refreshAutoMissions();
   res.status(result.ok ? 200 : 409).json(result);
 });
 
