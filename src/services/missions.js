@@ -466,11 +466,23 @@ const BORNES_FONDS = {
 /**
  * Fonds des stations et variation sur la période.
  *
- * L'API ne donne que le solde courant : la variation se calcule contre le
- * premier relevé quotidien de la période. Ce n'est pas un chiffre
- * d'affaires au sens comptable — les dépenses de la station y sont
- * déduites — mais c'est la seule mesure disponible, et c'est celle qui
- * alimente la répartition.
+ * L'API ne donne que le solde courant : la variation se calcule contre un
+ * relevé quotidien. Ce n'est pas un chiffre d'affaires au sens comptable —
+ * les dépenses de la station y sont déduites — mais c'est la seule mesure
+ * disponible, et c'est celle qui alimente la répartition.
+ *
+ * La référence d'une période est la clôture de la précédente : le dernier
+ * relevé d'avant son premier jour. Le relevé du jour est réécrit à chaque
+ * synchronisation ; prendre celui du 1er comme référence la faisait courir
+ * derrière le solde toute la journée — zéro affiché jusqu'à minuit — puis
+ * se figer sur le solde du soir. Les gains du 1er n'étaient comptés dans
+ * aucun mois.
+ *
+ * Le calcul se fait station par station. Une station absente de l'API le
+ * jour de référence comptait pour zéro, et son solde entier passait pour
+ * un gain. Chacune a désormais sa propre référence ; à défaut de relevé
+ * antérieur — première période suivie — c'est son premier relevé de la
+ * période. Une station sans aucune référence n'entre pas dans la variation.
  *
  * Sur une période close (« mois dernier »), le solde courant n'a rien à
  * voir avec ce que les stations avaient à la clôture : on prend alors le
@@ -478,45 +490,49 @@ const BORNES_FONDS = {
  */
 export function periodFunds(period = 'month') {
   const [debut, fin] = BORNES_FONDS[period] || BORNES_FONDS.month;
-  const borne = fin ? `AND l.day < ${fin}` : '';
+  const avantFin = fin ? `AND l.day < ${fin}` : '';
 
-  const jour = (agregat) => db.prepare(`
-    SELECT ${agregat}(l.day) AS day
-    FROM station_funds_log l
-    JOIN stations st ON st.id = l.station_id AND st.active = 1
-    WHERE l.day >= ${debut} ${borne}
-  `).get().day;
-
-  const soldesDuJour = (day) => db.prepare(`
-    SELECT st.id, st.name, st.code, COALESCE(l.money, 0) AS money
-    FROM stations st
-    LEFT JOIN station_funds_log l ON l.station_id = st.id AND l.day = ?
-    WHERE st.active = 1 ORDER BY st.sort_order, st.name
-  `).all(day);
-
-  const soldesCourants = () => db.prepare(`
-    SELECT st.id, st.name, st.code, COALESCE(ss.money, 0) AS money
-    FROM stations st
-    LEFT JOIN station_status ss ON ss.station_id = st.id
-    WHERE st.active = 1 ORDER BY st.sort_order, st.name
-  `).all();
-
-  const somme = (lignes) => lignes.reduce((t, s) => t + s.money, 0);
-
-  const jourBase = jour('MIN');
-  const baseline = jourBase ? somme(soldesDuJour(jourBase)) : 0;
+  const dernierReleve = (condition) => `(
+    SELECT l.money FROM station_funds_log l
+    WHERE l.station_id = st.id ${condition}
+    ORDER BY l.day DESC LIMIT 1)`;
 
   // Période close : la clôture est le dernier relevé de la fenêtre.
   // Période en cours : le solde de l'instant, qui bouge à chaque relevé.
-  const jourFin = fin ? jour('MAX') : null;
-  const stations = fin ? (jourFin ? soldesDuJour(jourFin) : []) : soldesCourants();
-  const total = somme(stations);
+  const cloture = fin
+    ? dernierReleve(`AND l.day >= ${debut} ${avantFin}`)
+    : '(SELECT ss.money FROM station_status ss WHERE ss.station_id = st.id)';
+
+  const lignes = db.prepare(`
+    SELECT st.id, st.name, st.code,
+           COALESCE(
+             ${dernierReleve(`AND l.day < ${debut}`)},
+             (SELECT l.money FROM station_funds_log l
+              WHERE l.station_id = st.id AND l.day >= ${debut} ${avantFin}
+              ORDER BY l.day ASC LIMIT 1)
+           ) AS base,
+           ${cloture} AS cloture
+    FROM stations st
+    WHERE st.active = 1 ORDER BY st.sort_order, st.name
+  `).all();
+
+  // Sans clôture connue, une station reste à sa référence : variation nulle.
+  const stations = lignes.map(({ base, cloture: fermeture, ...st }) => ({
+    ...st,
+    base,
+    money: fermeture ?? base ?? 0,
+  }));
+
+  const suivies = stations.filter((s) => s.base != null);
+  const total = stations.reduce((t, s) => t + s.money, 0);
+  const baseline = suivies.reduce((t, s) => t + s.base, 0);
+  const delta = suivies.reduce((t, s) => t + s.money - s.base, 0);
 
   return {
     total,
     baseline,
-    delta: jourBase ? total - baseline : 0,
-    hasBaseline: !!jourBase,
+    delta,
+    hasBaseline: suivies.length > 0,
     stations,
     period,
     closed: !!fin,

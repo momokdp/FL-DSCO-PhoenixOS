@@ -75,8 +75,8 @@ cinquante-et-unième.
 
 ## La cagnotte est une variation de fonds, jamais un solde
 
-`cagnotte = (fonds du jour − fonds du premier relevé de la période) × part
-reversée`.
+`cagnotte = (fonds du jour − fonds à la clôture de la période précédente) ×
+part reversée`.
 
 Le solde d'une station contient tout ce qu'elle possède, y compris ce
 qu'elle avait avant le mois. Le répartir reviendrait à distribuer la
@@ -86,8 +86,21 @@ l'ont produite.
 Sur une période close — « mois dernier » — la clôture est le dernier relevé
 de la fenêtre, pas `station_status`, qui ne dit que le solde d'aujourd'hui.
 
+La référence est le dernier relevé d'**avant** le premier jour de la
+période, pas le premier relevé de celle-ci. Le relevé du jour est réécrit à
+chaque synchronisation : pris comme référence, celui du 1er suivait le solde
+toute la journée — cagnotte à zéro jusqu'à minuit — puis se figeait sur le
+solde du soir. Les gains du 1er n'appartenaient à aucun mois (issue #22).
+Avec la clôture précédente, la fin d'un mois et le début du suivant sont le
+même chiffre : rien ne se perd entre les deux.
+
+Le calcul se fait station par station. Une station absente de l'API le jour
+de référence comptait pour zéro, et son solde entier passait pour un gain.
+Une station qui n'a aucun relevé antérieur — premier mois suivi — prend son
+premier relevé de la période.
+
 Sans relevé de référence, aucune somme n'est avancée : l'écran montre les
-pourcentages, exacts eux, et attend le premier relevé du mois.
+pourcentages, exacts eux, et attend le premier relevé.
 
 ## Les crédits se répartissent à la plus forte décimale
 
