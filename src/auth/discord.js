@@ -8,10 +8,26 @@ export const authRouter = express.Router();
 const DISCORD_API = 'https://discord.com/api/v10';
 const SCOPES = config.discord.guildId ? 'identify guilds' : 'identify';
 
+/**
+ * Destination après connexion, réduite à un chemin de la console.
+ *
+ * `next` vient de l'URL, donc de n'importe qui : suivi tel quel, un lien
+ * « /auth/discord?next=https://ailleurs » envoyait le pilote, une fois
+ * authentifié chez nous, sur le site de son choix. On n'accepte qu'un chemin
+ * local — un « / » initial, jamais suivi d'un second « / » ni d'un « \ », que
+ * les navigateurs lisent comme le début d'un nom d'hôte.
+ */
+function cheminLocal(valeur) {
+  if (typeof valeur !== 'string') return '/';
+  if (!/^\/(?![/\\])/.test(valeur)) return '/';
+  if (/[\u0000-\u001f\u007f]/.test(valeur)) return '/';
+  return valeur;
+}
+
 authRouter.get('/discord', (req, res) => {
   const state = crypto.randomBytes(16).toString('hex');
   req.session.oauthState = state;
-  req.session.returnTo = typeof req.query.next === 'string' ? req.query.next : '/';
+  req.session.returnTo = cheminLocal(req.query.next);
 
   const url = new URL('https://discord.com/oauth2/authorize');
   url.searchParams.set('client_id', config.discord.clientId);
@@ -75,7 +91,7 @@ authRouter.get('/discord/callback', async (req, res) => {
     }
 
     req.session.userId = user.id;
-    const next = req.session.returnTo || '/';
+    const next = cheminLocal(req.session.returnTo);
     delete req.session.returnTo;
     res.redirect(next);
 
