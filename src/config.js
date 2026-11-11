@@ -25,7 +25,6 @@ export const config = {
   baseUrl: (process.env.BASE_URL || 'http://localhost:3000').replace(/\/$/, ''),
 
   dbFile: process.env.DB_FILE || path.join(ROOT, 'data', 'kadesh.sqlite'),
-  dataDir: process.env.DATA_DIR || path.join(ROOT, 'data'),
 
   session: {
     secret: required('SESSION_SECRET'),

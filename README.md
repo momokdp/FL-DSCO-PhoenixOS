@@ -426,6 +426,7 @@ src/
   auth/
     discord.js           parcours OAuth2
     middleware.js        session, contrôle des rôles
+    sessionStore.js      sessions rangées dans la base de la console
   sync/
     darkstat.js          relevé périodique des stocks
     analyse.js           passe horaire : routes puis boucles
