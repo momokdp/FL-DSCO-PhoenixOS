@@ -6,6 +6,7 @@ import { h, get, ago, clear, toast, loading, empty } from './ui.js';
 import { t, lang, setLang, languages } from './i18n.js';
 import { missionsView, mineView, stationsView, recipesView, routesView, loopsView, boardView } from './views.js';
 import { adminView } from './admin.js';
+import { hangarView } from './hangar.js';
 import { startAutoRefresh } from './refresh.js';
 
 const ROUTES = {
@@ -16,6 +17,7 @@ const ROUTES = {
   routes: { view: routesView, key: 'nav.routes' },
   loops: { view: loopsView, key: 'nav.loops' },
   board: { view: boardView, key: 'nav.board' },
+  hangar: { view: hangarView, key: 'nav.hangar' },
   admin: { view: adminView, key: 'nav.admin', role: 'officer' },
 };
 
@@ -272,7 +274,7 @@ function connectStream() {
 document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
-  const keys = { m: 'missions', e: 'mine', s: 'stations', a: 'recipes', r: 'routes', b: 'loops', c: 'board' };
+  const keys = { m: 'missions', e: 'mine', s: 'stations', a: 'recipes', r: 'routes', b: 'loops', c: 'board', h: 'hangar' };
   const target = keys[e.key.toLowerCase()];
   if (target) location.hash = `#/${target}`;
 });

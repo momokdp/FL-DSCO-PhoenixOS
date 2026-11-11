@@ -7,7 +7,10 @@ import {
   myClaims, refreshAutoMissions, claimHistory, cancelDelivery, payoutPlan,
 } from '../services/missions.js';
 import { subscribe, broadcast } from '../services/events.js';
-import { listLoops, setShip } from '../services/loops.js';
+import { listLoops } from '../services/loops.js';
+import {
+  listShips, listModels, addShip, updateShip, activateShip, retireShip,
+} from '../services/hangar.js';
 
 export const apiRouter = express.Router();
 
@@ -49,7 +52,8 @@ apiRouter.get('/missions/mine', requireAuth, (req, res) => {
 });
 
 apiRouter.post('/missions/:id/claim', requireAuth, (req, res) => {
-  const result = claimMission(Number(req.params.id), req.user.id, req.body?.pledged);
+  const result = claimMission(Number(req.params.id), req.user.id, req.body?.pledged,
+    req.body?.shipId ?? null);
   res.status(result.ok ? 200 : 409).json(result);
 });
 
@@ -144,19 +148,39 @@ apiRouter.get('/loops', requireAuth, (req, res) => {
   }));
 });
 
-/**
- * Le pilote déclare son vaisseau.
- *
- * Fixer la cale par station serait faux pour quiconque ne vole pas le
- * vaisseau supposé : un même pilote alterne transport et freighter d'un
- * vol à l'autre. C'est donc lui qui la déclare, une fois.
- */
-apiRouter.post('/me/ship', requireAuth, (req, res) => {
-  const result = setShip(req.user.id, {
-    cargo: req.body?.cargo,
-    shipClass: req.body?.shipClass,
-  });
-  res.json(result);
+// ------------------------------------------------------------- hangar
+//
+// Chaque pilote ne voit et ne touche que ses propres vaisseaux : toutes
+// ces routes partent de req.user.id, jamais d'un identifiant de pilote
+// reçu du client.
+
+const repondre = (res, result, echec = 400) =>
+  res.status(result.ok ? 200 : echec).json(result);
+
+apiRouter.get('/me/ships', requireAuth, (req, res) => {
+  res.json(listShips(req.user.id));
+});
+
+/** Le catalogue des modèles, tel que relevé sur darkstat. */
+apiRouter.get('/ships/models', requireAuth, (_req, res) => {
+  res.json(listModels());
+});
+
+apiRouter.post('/me/ships', requireAuth, (req, res) => {
+  repondre(res, addShip(req.user.id, { model: req.body?.model, name: req.body?.name }));
+});
+
+apiRouter.put('/me/ships/:id', requireAuth, (req, res) => {
+  repondre(res, updateShip(req.user.id, Number(req.params.id),
+    { model: req.body?.model, name: req.body?.name }));
+});
+
+apiRouter.post('/me/ships/:id/activate', requireAuth, (req, res) => {
+  repondre(res, activateShip(req.user.id, Number(req.params.id)));
+});
+
+apiRouter.delete('/me/ships/:id', requireAuth, (req, res) => {
+  repondre(res, retireShip(req.user.id, Number(req.params.id)), 409);
 });
 
 // ---------------------------------------------------------------- divers

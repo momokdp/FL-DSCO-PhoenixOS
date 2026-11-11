@@ -56,6 +56,11 @@ export const config = {
     routesIntervalMs: Number(process.env.ROUTES_INTERVAL_MINUTES || 60) * 60 * 1000,
     timeoutMs: Number(process.env.SYNC_TIMEOUT_MS || 20000),
 
+    // Le catalogue des vaisseaux ne change qu'aux mises à jour du jeu :
+    // un relevé par jour tient les soutes à jour sans peser sur darkstat.
+    shipsPath: '/api/ships',
+    shipsIntervalMs: Number(process.env.SHIPS_INTERVAL_HOURS || 24) * 60 * 60 * 1000,
+
     // /api/graph/paths accepte un tableau de couples : 400 couples reviennent
     // en une fraction de seconde. Interroger couple par couple rendrait la
     // mesure du temps de trajet trop chère pour servir au classement.

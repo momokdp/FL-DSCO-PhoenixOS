@@ -1136,3 +1136,16 @@ a:hover { text-decoration: underline; }
    de son origine : une bordure tiède et une étiquette explicite. */
 .mission[data-origin="manual"] { border-color: rgba(232,163,61,.35); }
 .tag--manual { color: var(--amber); border-color: rgba(232,163,61,.4); }
+
+/* ------------------------------------------------------------ hangar */
+
+/* Le choix d'un modèle : une recherche, une case, puis la liste. Celle-ci
+   garde une hauteur fixe pour que la fenêtre ne saute pas à chaque lettre
+   tapée dans la recherche. */
+.hangar__picker { display: grid; gap: .45rem; }
+.hangar__models { height: 13.5rem; padding: .2rem; font-family: var(--mono); font-size: .8rem; }
+.hangar__models option { padding: .2rem .4rem; }
+.hangar__all {
+  display: flex; align-items: center; gap: .45rem;
+  font-size: .8rem; color: var(--muted); cursor: pointer;
+}

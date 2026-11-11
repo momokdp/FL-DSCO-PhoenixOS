@@ -8,6 +8,7 @@ import {
 } from './ui.js';
 import { t, t2 } from './i18n.js';
 import { cadences, refreshSeconds, setRefreshSeconds } from './refresh.js';
+import { holdUnits, shipLabel } from './hangar.js';
 
 const PRIORITES = ['critical', 'high', 'normal', 'low'];
 
@@ -315,25 +316,71 @@ async function claimFlow(m, ctx) {
   const restant = Math.max(0, m.remaining_qty ?? (m.target_qty - m.pledged_qty));
   if (restant <= 0) { toast(t('mission.full'), 'err'); return; }
 
+  // Un engagement vaut un voyage, fait avec un vaisseau du hangar : c'est
+  // sa soute qui borne ce qu'on peut promettre, puis livrer.
+  let hangar;
+  try { hangar = await get('/me/ships'); } catch (e) { notifyError(e); return; }
+  const vaisseaux = hangar.ships.filter((s) => s.usable);
+
+  // Sans vaisseau utilisable, le serveur refuserait : autant le dire ici,
+  // avec le chemin du hangar. Seule exception, le catalogue jamais relevé :
+  // personne ne peut alors rattacher de vaisseau, et la mission se prend
+  // comme avant.
+  if (!vaisseaux.length && hangar.catalogReady) {
+    const aller = await modal({
+      title: t('claim.needShipTitle'),
+      build: () => h('p', { style: 'margin:0' }, t('claim.needShipBody')),
+      actions: [
+        { label: t('common.cancel'), value: null },
+        { label: t('claim.goToHangar'), variant: 'primary', value: true },
+      ],
+    });
+    if (aller) location.hash = '#/hangar';
+    return;
+  }
+
+  let vaisseau = vaisseaux.find((s) => s.active) || vaisseaux[0] || null;
+  const plafond = () => (vaisseau
+    ? Math.min(restant, holdUnits(vaisseau.hold, m.item_volume)) : restant);
+
   // Le champ part de 0, et non du besoin entier : pré-remplir la totalité
   // faisait réserver toute la mission au pilote qui validait sans lire, et
   // la bloquait pour les autres. C'est à lui de dire ce qu'il emporte.
-  // Il reste plafonné à ce qui manque : s'engager au-delà n'a pas de sens.
+  // Il reste plafonné à ce qui manque, et à ce que le vaisseau emporte.
   const champ = input({ type: 'number', name: 'pledged', min: '1', step: '1',
-    max: String(restant), value: 0, class: 'input--num' });
+    max: String(plafond()), value: 0, class: 'input--num' });
+
+  const contenance = h('em.hint');
+  const peindreContenance = () => {
+    if (!vaisseau) return;
+    contenance.textContent =
+      t('claim.capacity', { v: num(holdUnits(vaisseau.hold, m.item_volume)) });
+    champ.max = String(plafond());
+  };
+  peindreContenance();
+
+  const choixVaisseau = vaisseau ? select(
+    vaisseaux.map((s) => ({ value: s.id, label: shipLabel(s) })),
+    { value: vaisseau.id,
+      onChange: (e) => {
+        vaisseau = vaisseaux.find((s) => String(s.id) === e.target.value) || vaisseau;
+        peindreContenance();
+      } },
+  ) : null;
 
   const value = await modal({
     title: t('claim.title'),
     build: () => h('div',
       h('p', { style: 'margin-top:0' },
         `${t(`dir.${m.direction}Short`)} \u2014 `, h('strong', m.item_name), ` \u00b7 ${m.station_name}`),
+      choixVaisseau ? h('label.field', h('span', t('claim.ship')), choixVaisseau, contenance) : null,
       field(t('claim.qtyLabel'), champ,
         `${t('mission.freeLeft', { v: num(restant) })} \u00b7 ${t('claim.qtyHint')}`),
     ),
     actions: [
       { label: t('common.cancel'), value: null },
       { label: t('claim.confirm'), variant: 'primary',
-        onClick: (c) => c(Math.min(restant, Math.max(0, Math.round(Number(champ.value) || 0)))) },
+        onClick: (c) => c(Math.min(plafond(), Math.max(0, Math.round(Number(champ.value) || 0)))) },
     ],
   });
 
@@ -343,7 +390,7 @@ async function claimFlow(m, ctx) {
   if (value < 1) { toast(t('claim.qtyRequired'), 'err'); return; }
 
   try {
-    await post(`/missions/${m.id}/claim`, { pledged: value });
+    await post(`/missions/${m.id}/claim`, { pledged: value, shipId: vaisseau?.id ?? null });
     toast(t('claim.done'));
     ctx.reload();
   } catch (e) { notifyError(e); }
@@ -351,15 +398,25 @@ async function claimFlow(m, ctx) {
 
 async function deliverFlow(m, ctx) {
   const mien = m.claimants?.find((c) => c.mine);
+
+  // La soute du vaisseau engagé plafonne la livraison. Elle manque sur un
+  // engagement antérieur au hangar, qui se livre alors sans plafond.
+  const soute = m.ship_hold ?? m.my_ship_hold ?? null;
+  const tenable = soute != null ? holdUnits(soute, m.item_volume) : null;
+  const propose = mien?.pledged || m.target_qty;
+
   const champ = input({ type: 'number', name: 'quantity', min: '0', step: '1',
-    value: mien?.pledged || m.target_qty, class: 'input--num' });
+    max: tenable != null ? String(tenable) : null,
+    value: tenable != null ? Math.min(propose, tenable) : propose, class: 'input--num' });
   const note = input({ name: 'note', placeholder: t('common.optional') });
 
   const result = await modal({
     title: t('deliver.title'),
     build: () => h('div',
       h('p', { style: 'margin-top:0' }, h('strong', m.item_name), ` \u00b7 ${m.station_name}`),
-      field(t('deliver.qtyLabel'), champ, t('deliver.qtyHint')),
+      field(t('deliver.qtyLabel'), champ, tenable != null
+        ? `${t('deliver.capacity', { v: num(tenable) })} ${t('deliver.qtyHint')}`
+        : t('deliver.qtyHint')),
       field(t('common.note'), note),
     ),
     actions: [
@@ -399,11 +456,13 @@ export async function mineView(ctx) {
     ? panel(t('mine.active'), { count: claims.length, flush: true },
       h('table.table',
         h('thead', h('tr', ...[t('mine.colGoods'), t('mine.colDir'), t('mine.colStation'),
+          t('mine.colShip'),
           t('mine.colPledged'), t('mine.colWorth'), t('mine.colSince'), ''].map((x) => h('th', x)))),
         h('tbody', claims.map((c) => h('tr',
           h('td', h('strong', c.item_name)),
           h('td', h(`span.way.way--${c.direction}`, t(`dir.${c.direction}Short`))),
           h('td', c.station_name),
+          h('td', c.ship_name || '\u2014'),
           h('td', { class: 'num' }, num(c.pledged_qty)),
           h('td', { class: 'num is-ok', title: t('mine.estimated') },
             `${num(c.pledged_qty * (Number(c.item_volume) || 1)
@@ -720,17 +779,29 @@ function groupesManuels(routes) {
  * relance donc aucun calcul de marché, seulement une lecture.
  */
 export async function loopsView(ctx) {
-  const state = ctx.loopFilters ||= {
-    station: '',
-    cargo: ctx.user?.cargoCapacity ?? '',
-    ship: ctx.user?.shipClass || 'transport',
-  };
+  const state = ctx.loopFilters ||= { station: '', shipId: null, cargo: '', ship: 'transport' };
+
+  const hangar = await get('/me/ships');
+
+  // `shipId` vaut l'identifiant d'un vaisseau du hangar, ou '' pour une
+  // simulation libre. Au premier passage — ou si le vaisseau retenu a
+  // quitté le hangar depuis — on part du vaisseau actif.
+  const duHangar = () => hangar.ships.find((s) => String(s.id) === String(state.shipId)) || null;
+  if (state.shipId !== '' && !duHangar()) {
+    state.shipId = hangar.activeShipId ?? hangar.ships[0]?.id ?? '';
+  }
 
   const requete = () => {
     const p = new URLSearchParams();
     if (state.station) p.set('station', state.station);
-    if (state.cargo) p.set('cargo', state.cargo);
-    if (state.ship) p.set('ship', state.ship);
+    const vaisseau = duHangar();
+    if (vaisseau) {
+      p.set('cargo', vaisseau.hold);
+      p.set('ship', vaisseau.shipClass);
+    } else {
+      if (state.cargo) p.set('cargo', state.cargo);
+      if (state.ship) p.set('ship', state.ship);
+    }
     return `/loops?${p}`;
   };
 
@@ -775,23 +846,24 @@ export async function loopsView(ctx) {
     { value: state.ship, onChange: (e) => { state.ship = e.target.value; relire(); } },
   );
 
-  // Retenir le vaisseau évite de le ressaisir à chaque visite. Le réglage
-  // vit sur le profil du pilote, jamais sur la station : un même pilote
-  // alterne transport et cargo d'un vol à l'autre.
-  const retenir = h('button.btn.btn--ghost.btn--sm', {
-    type: 'button',
-    onClick: async () => {
-      try {
-        await post('/me/ship', { cargo: Number(state.cargo) || null, shipClass: state.ship });
-        if (ctx.user) {
-          ctx.user.cargoCapacity = Number(state.cargo) || null;
-          ctx.user.shipClass = state.ship;
-        }
-        toast(t('loops.saved'));
-        relire();
-      } catch (e) { notifyError(e); }
-    },
-  }, t('loops.save'));
+  // Les circuits se lisent à l'échelle d'un vaisseau du hangar. La cale et
+  // l'allure saisies à la main ne servent plus qu'à simuler un vaisseau
+  // qu'on n'a pas : leurs champs n'apparaissent que pour cela.
+  const simulation = h('span.toolbar__group', { style: 'display:contents' },
+    h('label.field.field--inline', h('span', t('loops.cargo')), caleInput),
+    h('label.field.field--inline', h('span', t('loops.shipClass')), classeSelect),
+  );
+  const montrerSimulation = () => {
+    for (const el of simulation.children) el.hidden = !!duHangar();
+  };
+  montrerSimulation();
+
+  const vaisseauSelect = select(
+    [...hangar.ships.map((s) => ({ value: s.id, label: shipLabel(s) })),
+      { value: '', label: t('loops.simulate') }],
+    { value: state.shipId ?? '',
+      onChange: (e) => { state.shipId = e.target.value; montrerSimulation(); relire(); } },
+  );
 
   peindre(data);
 
@@ -804,9 +876,8 @@ export async function loopsView(ctx) {
           ...stations.map((st) => ({ value: st.id, label: st.name }))],
         { value: state.station, onChange: (e) => { state.station = e.target.value; relire(); } },
       ),
-      h('label.field.field--inline', h('span', t('loops.cargo')), caleInput),
-      h('label.field.field--inline', h('span', t('loops.shipClass')), classeSelect),
-      retenir,
+      h('label.field.field--inline', h('span', t('loops.ship')), vaisseauSelect),
+      simulation,
       h('span.spacer'),
       releve,
     ),
@@ -837,10 +908,14 @@ function lieu(bout) {
 }
 
 function loopCard(b, ctx) {
+  // Le vaisseau engagé est celui sur lequel le circuit est affiché. En
+  // simulation, aucun n'est désigné : le serveur prend le vaisseau actif,
+  // et refuse si la quantité simulée dépasse sa soute.
   const engager = async (missionId, qty) => {
     if (!(qty > 0)) return;
     try {
-      await post(`/missions/${missionId}/claim`, { pledged: qty });
+      await post(`/missions/${missionId}/claim`,
+        { pledged: qty, shipId: ctx.loopFilters?.shipId || null });
       toast(t('claim.done'));
       ctx.reload();
     } catch (e) { notifyError(e); }
