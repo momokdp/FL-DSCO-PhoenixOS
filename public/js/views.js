@@ -733,8 +733,8 @@ export async function routesView() {
     h('p.hint', { style: 'padding:.75rem 1rem 0;margin:0' }, t('routes.caveat')),
     h('table.table',
       h('thead', h('tr', ...['', t('recipes.colComponent'), t('mine.colStation'),
-        t('routes.buyAt'), t('stations.hull'), 'cr'].map((x, i) =>
-        h('th', { class: i === 5 ? 'num' : null }, i === 4 ? 'Système' : x)))),
+        t('routes.buyAt'), t('routes.colSystem'), t('common.currency')].map((x, i) =>
+        h('th', { class: i === 5 ? 'num' : null }, x)))),
       h('tbody', auto.map((r) => h('tr',
         h('td', h('span.mission__arrow', { class: `is-${r.direction}` },
           r.direction === 'export' ? '\u2191' : '\u2193')),
