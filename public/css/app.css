@@ -104,7 +104,7 @@ code {
 }
 .boot__mark {
   font-family: var(--display); font-size: 2.6rem; font-weight: 700;
-  letter-spacing: .3em; color: var(--amber); padding-left: .3em;
+  letter-spacing: .08em; color: var(--amber); padding-left: .08em;
   text-shadow: 0 0 32px rgba(237, 166, 60, .45);
   animation: pulse 1.4s ease-in-out infinite;
 }
@@ -135,10 +135,10 @@ code {
 .brand { display: flex; align-items: center; gap: .75rem; color: inherit; min-width: 0; }
 .brand:hover { text-decoration: none; }
 .brand__mark {
-  font-family: var(--display); font-weight: 700; font-size: 1.15rem;
-  letter-spacing: .16em; color: #1B1204;
+  font-family: var(--display); font-weight: 700; font-size: 1.1rem;
+  letter-spacing: .05em; white-space: nowrap; color: #1B1204;
   background: linear-gradient(160deg, #F7C063, #DD9226);
-  padding: .2rem .5rem .15rem .62rem; border-radius: 7px;
+  padding: .2rem .55rem .15rem .6rem; border-radius: 7px;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, .12) inset, 0 6px 18px -8px rgba(237, 166, 60, .8);
 }
 .brand__text { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
@@ -148,7 +148,7 @@ code {
 }
 .brand__text em {
   font-family: var(--mono); font-style: normal;
-  font-size: .68rem; color: var(--muted); letter-spacing: .08em;
+  font-size: .78rem; color: var(--muted); letter-spacing: .08em;
 }
 
 /* La pastille de relevé : le pouls de la console. */
@@ -308,6 +308,16 @@ code {
    missions entre elles, il lui faut en voir le plus possible d'un regard. */
 .grid--missions { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: .8rem; }
 .panel__body:has(> .grid--missions) { padding: .8rem; }
+
+/* Les sept blocs d'une carte (bandeau, marchandise, jauge, chiffres, gain,
+   équipage, action) s'alignent sur ceux de ses voisines : un nom ou un
+   trajet plus long ne décale plus la jauge ni le gain d'une carte à l'autre. */
+@supports (grid-template-rows: subgrid) {
+  .grid--missions > .mission {
+    display: grid; grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: subgrid; grid-row: span 7; row-gap: 0;
+  }
+}
 
 /* ------------------------------------------------------- carte de station */
 .station {
@@ -511,7 +521,11 @@ code {
 .mission__arrow.is-import { color: var(--void); background: var(--inbound); }
 .mission__arrow.is-export { color: var(--void); background: var(--outbound); }
 
-.mission__bar > * { white-space: nowrap; }
+.mission__bar > *, .mission__meta > * { white-space: nowrap; }
+.mission__meta {
+  display: inline-flex; align-items: center; gap: .4rem;
+  margin-left: auto;
+}
 .mission__prio { color: var(--muted); }
 .mission[data-priority="critical"] .mission__prio { color: var(--rust); font-weight: 700; }
 .mission[data-priority="high"] .mission__prio     { color: var(--amber); font-weight: 600; }
@@ -581,7 +595,9 @@ code {
 /* Le chiffre dominant de la carte. */
 .mission__need {
   flex: none; text-align: right; line-height: 1;
-  display: grid; grid-template-columns: auto auto; gap: 0 .25rem;
+  /* La colonne du chiffre absorbe la largeur du libellé : en « auto auto »,
+     l'unité s'écartait d'un petit nombre. */
+  display: grid; grid-template-columns: 1fr auto; gap: 0 .25rem;
   align-items: baseline; justify-items: end;
 }
 .mission__needLabel {
@@ -605,7 +621,7 @@ code {
 .mission[data-priority="low"] .gauge .gauge__fill { background-color: var(--muted); }
 
 .mission__figures {
-  display: grid; grid-template-columns: repeat(4, 1fr);
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.25fr);
   gap: .35rem; padding: .7rem .8rem .7rem 1rem;
 }
 .figure { display: grid; gap: .1rem; align-content: start; min-width: 0; }
@@ -1175,7 +1191,7 @@ button.chip:hover { color: var(--text); border-color: var(--muted); }
 }
 .gate__mark {
   font-family: var(--display); font-size: 3.2rem; font-weight: 700; line-height: 1;
-  letter-spacing: .3em; color: var(--amber); padding-left: .3em; margin-bottom: 1rem;
+  letter-spacing: .08em; color: var(--amber); padding-left: .08em; margin-bottom: 1rem;
   text-shadow: 0 0 36px rgba(237, 166, 60, .45);
 }
 .gate h1 {

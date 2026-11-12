@@ -9,7 +9,7 @@
 const DICT = {
   en: {
     /* -------------------------------------------------------- charpente */
-    'app.title': 'Kadesh Logistics',
+    'app.title': 'Phoenix_OS',
     'nav.missions': 'Missions',
     'nav.mine': 'My runs',
     'nav.stations': 'Holds',
@@ -24,7 +24,7 @@ const DICT = {
     'role.officer': 'Officer',
     'role.admin': 'Administrator',
 
-    'gate.title': 'Kadesh Logistics Console',
+    'gate.title': 'Logistics Console',
     'gate.blurb': 'Sign in with Discord to view station holds and take supply runs.',
     'gate.button': 'Sign in with Discord',
     'gate.unreachable': 'Console unreachable.',
@@ -73,12 +73,13 @@ const DICT = {
     'mission.inHold': 'In hold',
     'mission.target': 'Target',
     'mission.pledged': 'Pledged',
-    'mission.alreadyDelivered': '{v} already delivered',
+    'mission.alreadyDelivered': '{v} delivered',
     'mission.remaining': 'Remaining',
     'mission.volume': 'Volume',
     'mission.perUnit': 'per unit',
     'mission.reward': 'Reward',
-    'mission.riskBonus': 'Risk bonus ×{v}',
+    'mission.riskBonus': 'Bonus ×{v}',
+    'mission.riskBonusHint': 'Risk bonus ×{v}',
     'mission.pointsFor': '{v} pts for the full run',
     'mission.pointsPart': '{v} pts for your share',
     'mission.rate': '{v} pts per unit',
@@ -585,7 +586,7 @@ const DICT = {
   },
 
   fr: {
-    'app.title': 'Logistique Kadesh',
+    'app.title': 'Phoenix_OS',
     'nav.missions': 'Missions',
     'nav.mine': 'Mes runs',
     'nav.stations': 'Soutes',
@@ -600,7 +601,7 @@ const DICT = {
     'role.officer': 'Officier',
     'role.admin': 'Administrateur',
 
-    'gate.title': 'Console logistique Kadesh',
+    'gate.title': 'Console logistique',
     'gate.blurb': 'Identifiez-vous avec Discord pour consulter les soutes et prendre des missions.',
     'gate.button': 'Se connecter avec Discord',
     'gate.unreachable': 'Console injoignable.',
@@ -647,12 +648,13 @@ const DICT = {
     'mission.inHold': 'En soute',
     'mission.target': 'Objectif',
     'mission.pledged': 'Engagé',
-    'mission.alreadyDelivered': '{v} déjà livrés',
+    'mission.alreadyDelivered': '{v} livrés',
     'mission.remaining': 'Restant',
     'mission.volume': 'Volume',
     'mission.perUnit': "à l'unité",
     'mission.reward': 'Gain',
-    'mission.riskBonus': 'Prime de risque ×{v}',
+    'mission.riskBonus': 'Prime ×{v}',
+    'mission.riskBonusHint': 'Prime de risque ×{v}',
     'mission.pointsFor': '{v} pts pour la mission entière',
     'mission.pointsPart': '{v} pts pour votre part',
     'mission.rate': '{v} pts par unité',
