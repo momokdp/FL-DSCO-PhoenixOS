@@ -71,7 +71,7 @@ function showGate(message = null) {
   shell.hidden = false;
   shell.className = 'gate';
   clear(shell).appendChild(h('div.gate__box',
-    h('div.gate__mark', 'KDS'),
+    h('div.gate__mark', 'Phoenix_OS'),
     h('h1', t('gate.title')),
     h('p', message || t('gate.blurb')),
     !message && h('a.btn.btn--primary', { href: '/auth/discord' }, t('gate.button')),
@@ -98,8 +98,6 @@ function paintNav() {
     const label = link.querySelector('.rail__label');
     if (entry && label) label.textContent = t(entry.key);
   }
-  const brand = document.querySelector('.brand__name');
-  if (brand) brand.textContent = t('app.title');
   const sync = document.querySelector('.sync__label');
   if (sync) sync.textContent = t('sync.label');
   document.getElementById('syncPill').title = t('sync.title');

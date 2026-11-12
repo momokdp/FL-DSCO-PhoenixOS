@@ -234,14 +234,21 @@ function missionCard(m, ctx) {
       ),
       // La prime décide souvent du choix du pilote : elle doit se voir avant
       // même qu'il lise le reste de la carte.
-      palier ? h('span.mission__bonus', { dataset: { tier: palier } },
-        t('mission.riskBonus', { v: dec(prime) })) : null,
-      h('span.spacer'),
-      m.auto
-        ? h('span.tag.tag--auto', t('mission.auto'))
-        : h('span.tag.tag--manual', t('mission.manual')),
-      h('span.mission__prio', t(`priority.${m.priority}`)),
-      couvert > 0 ? h('span.mission__pct', `${avancement}%`) : null,
+      palier ? h('span.mission__bonus', {
+        dataset: { tier: palier },
+        title: t('mission.riskBonusHint', { v: dec(prime) }),
+      }, t('mission.riskBonus', { v: dec(prime) })) : null,
+      // Origine, criticité et avancement voyagent ensemble : si le bandeau
+      // manque de place, le groupe passe à la ligne d'un bloc et reste calé
+      // à droite, au lieu de semer une étiquette orpheline à gauche.
+      h('span.mission__meta',
+        // Seule l'exception s'étiquette : une mission automatique est le cas
+        // courant, et son étiquette suffisait à replier le bandeau d'une
+        // carte étroite dès qu'elle portait une prime.
+        m.auto ? null : h('span.tag.tag--manual', t('mission.manual')),
+        h('span.mission__prio', t(`priority.${m.priority}`)),
+        couvert > 0 ? h('span.mission__pct', `${avancement}%`) : null,
+      ),
     ),
 
     h('div.mission__body',
