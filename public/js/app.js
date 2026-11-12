@@ -35,11 +35,12 @@ const current = () => (location.hash.replace(/^#\/?/, '') || 'missions').split('
 /* ------------------------------------------------------------- amorçage */
 
 async function boot() {
+  document.querySelector('.boot__line').textContent = t('boot.opening');
   let me;
   try {
     me = await get('/me');
   } catch (err) {
-    return showGate(`La console est injoignable. ${err.message}`);
+    return showGate(`${t('gate.unreachable')} ${err.message}`);
   }
 
   if (!me || !me.user) return showGate();
@@ -101,6 +102,7 @@ function paintNav() {
   if (brand) brand.textContent = t('app.title');
   const sync = document.querySelector('.sync__label');
   if (sync) sync.textContent = t('sync.label');
+  document.getElementById('syncPill').title = t('sync.title');
 }
 
 function paintIdentity() {
@@ -285,11 +287,11 @@ document.addEventListener('keydown', (e) => {
  */
 boot().catch((err) => {
   console.error('[amorçage]', err);
-  showGate(`Erreur au démarrage : ${err.message}`);
+  showGate(t('boot.startError', { v: err.message }));
 });
 
 window.addEventListener('error', (e) => {
   if (!document.getElementById('boot').hidden) {
-    showGate(`Erreur de chargement : ${e.message}`);
+    showGate(t('boot.loadError', { v: e.message }));
   }
 });

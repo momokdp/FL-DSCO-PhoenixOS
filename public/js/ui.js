@@ -3,6 +3,8 @@
    Aucun framework : les vues renvoient des noeuds, le routeur les pose.
    ===================================================================== */
 
+import { t, lang } from './i18n.js';
+
 /* ------------------------------------------------------------- réseau */
 
 export async function api(path, options = {}) {
@@ -27,16 +29,16 @@ export async function api(path, options = {}) {
     });
   } catch (err) {
     if (err.name === 'AbortError') {
-      throw new Error(`Aucune réponse du serveur sur /api${path} (délai dépassé).`);
+      throw new Error(t('net.timeout', { path: `/api${path}` }));
     }
-    throw new Error(`Serveur injoignable sur /api${path} : ${err.message}`);
+    throw new Error(t('net.unreachable', { path: `/api${path}`, v: err.message }));
   } finally {
     clearTimeout(minuteur);
   }
 
   if (res.status === 401) {
     location.href = '/auth/discord';
-    throw new Error('Session expirée.');
+    throw new Error(t('net.expired'));
   }
 
   const brut = await res.text();
@@ -44,18 +46,17 @@ export async function api(path, options = {}) {
   try { payload = brut ? JSON.parse(brut) : null; } catch { /* pas du JSON */ }
 
   if (!res.ok) {
-    throw new Error(payload?.error || `Le serveur a répondu ${res.status}.`);
+    throw new Error(payload?.error || t('net.status', { v: res.status }));
   }
 
   // Une réponse 200 qui n'est pas du JSON signale presque toujours un proxy
   // mal configuré qui renvoie une page HTML à la place de l'API. Sans ce
   // contrôle, l'appelant recevait null et plantait plus loin, sans indice.
   if (payload === null && brut.trim() !== '') {
-    throw new Error(
-      `Réponse inattendue sur /api${path} : le serveur a renvoyé du contenu ` +
-      `non-JSON (${(res.headers.get('content-type') || 'type inconnu').split(';')[0]}). ` +
-      `Vérifiez la configuration du proxy inverse.`
-    );
+    throw new Error(t('net.notJson', {
+      path: `/api${path}`,
+      type: (res.headers.get('content-type') || '?').split(';')[0],
+    }));
   }
   return payload;
 }
@@ -112,7 +113,10 @@ export function clear(el) {
 
 /* ------------------------------------------------------------- formats */
 
-const NF = new Intl.NumberFormat('fr-FR');
+// Les nombres et les dates suivent la langue choisie : un pilote qui lit en
+// anglais attend « 24,000 », pas « 24 000 ».
+const LOCALE = lang === 'fr' ? 'fr-FR' : 'en-GB';
+const NF = new Intl.NumberFormat(LOCALE);
 export const num = (v) => NF.format(Math.round(Number(v) || 0));
 
 /**
@@ -122,7 +126,7 @@ export const num = (v) => NF.format(Math.round(Number(v) || 0));
  * d'être lisible d'un coup d'oeil ; à zéro, deux pilotes proches
  * affichent la même part.
  */
-const PF = new Intl.NumberFormat('fr-FR', {
+const PF = new Intl.NumberFormat(LOCALE, {
   style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1,
 });
 export const pct = (v) => PF.format(Number(v) || 0);
@@ -144,20 +148,20 @@ export function signed(v) {
 
 /** « il y a 4 min » — la fraîcheur du relevé compte plus que l'heure exacte. */
 export function ago(iso) {
-  if (!iso) return 'jamais';
+  if (!iso) return t('common.never');
   const then = Date.parse(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z');
   if (Number.isNaN(then)) return '—';
   const s = Math.max(0, Math.round((Date.now() - then) / 1000));
   if (s < 60) return `${s} s`;
   if (s < 3600) return `${Math.round(s / 60)} min`;
   if (s < 86400) return `${Math.round(s / 3600)} h`;
-  return `${Math.round(s / 86400)} j`;
+  return `${Math.round(s / 86400)} ${t('common.day')}`;
 }
 
 export function dateShort(iso) {
   if (!iso) return '—';
   const d = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z');
-  return Number.isNaN(+d) ? '—' : d.toLocaleDateString('fr-FR', {
+  return Number.isNaN(+d) ? '—' : d.toLocaleDateString(LOCALE, {
     day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
   });
 }
@@ -181,13 +185,13 @@ export function gauge({ qty, min = 0, max = 0, pending = 0 }) {
       : max > 0 && qty >= max ? 'full' : 'ok';
 
   return h('div.gauge', { class: `is-${level}`, role: 'img',
-    'aria-label': `${num(qty)} unités sur ${num(ceiling)}, seuil bas ${num(min)}` },
+    'aria-label': t('gauge.label', { qty: num(qty), max: num(ceiling), min: num(min) }) },
   h('span.gauge__fill', { style: `width:${pct(confirmed)}` }),
   pending > 0 && h('span.gauge__pending', {
     style: `left:${pct(confirmed)};width:${pct(pending)}`,
-    title: `${num(pending)} en attente de confirmation par l'API`,
+    title: t('gauge.pending', { v: num(pending) }),
   }),
-  min > 0 && h('span.gauge__min', { style: `left:${pct(min)}`, title: `Seuil bas : ${num(min)}` }),
+  min > 0 && h('span.gauge__min', { style: `left:${pct(min)}`, title: t('gauge.floor', { v: num(min) }) }),
   );
 }
 
@@ -240,7 +244,7 @@ export function modal({ title, build, actions = [], width = null }) {
     const box = h('div.modal__box', { style: width ? `max-width:${width}` : null, role: 'dialog', 'aria-modal': 'true' },
       h('div.modal__head',
         h('h2', title),
-        h('button.modal__close', { type: 'button', 'aria-label': 'Fermer', onClick: () => close(null) }, '×'),
+        h('button.modal__close', { type: 'button', 'aria-label': t('common.close'), onClick: () => close(null) }, '×'),
       ),
       h('div.modal__body', build(close)),
       actions.length ? foot : null,
@@ -258,12 +262,12 @@ export function modal({ title, build, actions = [], width = null }) {
 
 export const dismissModal = (v) => closeModal && closeModal(v);
 
-export function confirmDialog(title, message, confirmLabel = 'Confirmer') {
+export function confirmDialog(title, message, confirmLabel = t('common.confirm')) {
   return modal({
     title,
     build: () => h('p', { style: 'margin:0' }, message),
     actions: [
-      { label: 'Annuler', value: false },
+      { label: t('common.cancel'), value: false },
       { label: confirmLabel, variant: 'danger', value: true },
     ],
   });
@@ -302,7 +306,7 @@ export function readForm(root) {
 
 /* ------------------------------------------------------- états d'écran */
 
-export const loading = (label = 'Lecture des relevés…') =>
+export const loading = (label = t('common.loading')) =>
   h('div.loading', label);
 
 export function empty(title, detail = null, action = null) {

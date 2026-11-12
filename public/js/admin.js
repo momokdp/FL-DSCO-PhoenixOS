@@ -8,24 +8,25 @@ import {
   h, get, post, put, del, num, ago, dateShort, toast, notifyError, modal,
   confirmDialog, field, input, select, loading, empty, panel, clear, readForm,
 } from './ui.js';
+import { t, t2 } from './i18n.js';
 
 const TABS = [
-  { key: 'stations', label: 'Stations', role: 'officer' },
-  { key: 'thresholds', label: 'Seuils', role: 'officer' },
-  { key: 'missions', label: 'Missions', role: 'officer' },
-  { key: 'runs', label: 'Runs', role: 'officer' },
-  { key: 'items', label: 'Marchandises', role: 'officer' },
-  { key: 'routes', label: 'Routes', role: 'officer' },
-  { key: 'recipes', label: 'Recettes', role: 'officer' },
-  { key: 'users', label: 'Pilotes', role: 'admin' },
-  { key: 'sync', label: 'Synchronisation', role: 'officer' },
+  { key: 'stations', label: t('adm.tab.stations'), role: 'officer' },
+  { key: 'thresholds', label: t('adm.tab.thresholds'), role: 'officer' },
+  { key: 'missions', label: t('adm.tab.missions'), role: 'officer' },
+  { key: 'runs', label: t('adm.tab.runs'), role: 'officer' },
+  { key: 'items', label: t('adm.tab.items'), role: 'officer' },
+  { key: 'routes', label: t('adm.tab.routes'), role: 'officer' },
+  { key: 'recipes', label: t('adm.tab.recipes'), role: 'officer' },
+  { key: 'users', label: t('adm.tab.users'), role: 'admin' },
+  { key: 'sync', label: t('adm.tab.sync'), role: 'officer' },
 ];
 
 const RANK = { member: 0, officer: 1, admin: 2 };
 
 export async function adminView(ctx) {
-  const allowed = TABS.filter((t) => RANK[ctx.user.role] >= RANK[t.role]);
-  const state = ctx.adminTab && allowed.some((t) => t.key === ctx.adminTab)
+  const allowed = TABS.filter((tab) => RANK[ctx.user.role] >= RANK[tab.role]);
+  const state = ctx.adminTab && allowed.some((tab) => tab.key === ctx.adminTab)
     ? ctx.adminTab : allowed[0].key;
 
   const stage = h('div', loading());
@@ -37,21 +38,21 @@ export async function adminView(ctx) {
     try {
       stage.replaceChildren(await PANES[key](ctx));
     } catch (e) {
-      stage.replaceChildren(empty('Chargement impossible', e.message));
+      stage.replaceChildren(empty(t('common.failed'), e.message));
     }
   };
 
-  const tabs = h('div.tabs', allowed.map((t) =>
+  const tabs = h('div.tabs', allowed.map((tab) =>
     h('button.chip', {
-      type: 'button', dataset: { key: t.key },
-      class: t.key === state ? 'is-on' : null,
-      onClick: () => open(t.key),
-    }, t.label)));
+      type: 'button', dataset: { key: tab.key },
+      class: tab.key === state ? 'is-on' : null,
+      onClick: () => open(tab.key),
+    }, tab.label)));
 
   open(state);
 
   return h('div',
-    h('div.head', h('span.eyebrow', 'Administration'), h('h1', 'Gestion de la console')),
+    h('div.head', h('span.eyebrow', t('adm.eyebrow')), h('h1', t('adm.title'))),
     h('div.toolbar', tabs),
     stage,
   );
@@ -74,10 +75,10 @@ const addButton = (label, onClick) =>
 const rowActions = (...buttons) => h('td', { class: 'row-actions' }, buttons);
 
 const editBtn = (onClick) =>
-  h('button.btn.btn--ghost.btn--sm', { type: 'button', onClick }, 'Modifier');
+  h('button.btn.btn--ghost.btn--sm', { type: 'button', onClick }, t('common.edit'));
 
 const deleteBtn = (onClick) =>
-  h('button.btn.btn--ghost.btn--sm', { type: 'button', onClick }, 'Supprimer');
+  h('button.btn.btn--ghost.btn--sm', { type: 'button', onClick }, t('common.delete'));
 
 /* --------------------------------------------------- choix marchandise */
 
@@ -93,12 +94,11 @@ const deleteBtn = (onClick) =>
  */
 const listeMarchandises = () => get('/admin/items?all=1');
 
-const AIDE_MARCHANDISE =
-  'Liste tenue par l\'API darkstat. Pour en ajouter une, passez par l\'onglet Marchandises.';
+const AIDE_MARCHANDISE = t('adm.item.help');
 
 function itemSelect(items, props = {}) {
   return select([
-    { value: '', label: '— choisir une marchandise —' },
+    { value: '', label: t('adm.item.pick') },
     ...items.map((it) => ({ value: it.id, label: it.name })),
   ], { name: 'item_id', ...props });
 }
@@ -106,8 +106,7 @@ function itemSelect(items, props = {}) {
 /** Vrai si la liste est vide : sans elle, aucun formulaire n'a de sens. */
 function refuserSansMarchandise(items) {
   if (items.length) return false;
-  toast('Aucune marchandise connue. Lancez une synchronisation ou ajoutez-en '
-    + 'une depuis l\'onglet Marchandises.', 'err');
+  toast(t('adm.item.none'), 'err');
   return true;
 }
 
@@ -119,13 +118,13 @@ function refuserSansMarchandise(items) {
  * formulaire pour un menu resté sur son choix vide.
  */
 function formModal(title, buildFields,
-  { submitLabel = 'Enregistrer', width = null, validate = null } = {}) {
+  { submitLabel = t('common.save'), width = null, validate = null } = {}) {
   let form;
   return modal({
     title, width,
     build: () => (form = h('div.form', buildFields())),
     actions: [
-      { label: 'Annuler', value: null },
+      { label: t('common.cancel'), value: null },
       { label: submitLabel, variant: 'primary', onClick: (close) => {
         const values = readForm(form);
         const erreur = validate ? validate(values) : null;
@@ -137,7 +136,7 @@ function formModal(title, buildFields,
 }
 
 /** Refus commun aux formulaires dont la marchandise est obligatoire. */
-const exigerMarchandise = (v) => (v.item_id ? null : 'Choisissez la marchandise.');
+const exigerMarchandise = (v) => (v.item_id ? null : t('adm.item.required'));
 
 /* ============================================================ stations */
 
@@ -145,56 +144,55 @@ async function stationsPane(ctx) {
   const stations = await get('/admin/stations');
 
   const edit = async (station = null) => {
-    const values = await formModal(station ? 'Modifier la station' : 'Déclarer une station', () => [
-      field('Nom affiché', input({ name: 'name', value: station?.name || '', required: true })),
-      field('Nom exact dans l\'API', input({ name: 'api_name', value: station?.api_name || '' }),
-        'Doit correspondre au caractère près au champ « name » renvoyé par darkstat, sans quoi la soute restera vide.'),
-      field('Code court', input({ name: 'code', value: station?.code || '', maxlength: '5', placeholder: 'KOC' })),
-      field('Système', input({ name: 'system', value: station?.system || '' })),
-      field('Ordre d\'affichage', input({ type: 'number', name: 'sort_order', value: station?.sort_order ?? 0, class: 'input--num' })),
-      field('Station active', h('input', { type: 'checkbox', name: 'active', checked: station ? !!station.active : true })),
+    const values = await formModal(station ? t('adm.st.edit') : t('adm.st.declare'), () => [
+      field(t('adm.st.displayName'), input({ name: 'name', value: station?.name || '', required: true })),
+      field(t('adm.st.apiName'), input({ name: 'api_name', value: station?.api_name || '' }),
+        t('adm.st.apiNameHint')),
+      field(t('adm.st.code'), input({ name: 'code', value: station?.code || '', maxlength: '5', placeholder: 'KOC' })),
+      field(t('adm.col.system'), input({ name: 'system', value: station?.system || '' })),
+      field(t('adm.st.order'), input({ type: 'number', name: 'sort_order', value: station?.sort_order ?? 0, class: 'input--num' })),
+      field(t('adm.st.activeField'), h('input', { type: 'checkbox', name: 'active', checked: station ? !!station.active : true })),
     ]);
     if (!values) return;
     try {
       if (station) await put(`/admin/stations/${station.id}`, values);
       else await post('/admin/stations', values);
-      toast(station ? 'Station mise à jour.' : 'Station déclarée. Elle se remplira au prochain relevé.');
+      toast(station ? t('adm.st.updated') : t('adm.st.declared'));
       ctx.reload();
     } catch (e) { notifyError(e); }
   };
 
   const remove = async (station) => {
-    if (!await confirmDialog('Supprimer la station',
-      `${station.name}, son inventaire et ses missions seront effacés. Cette action est définitive.`,
-      'Supprimer')) return;
+    if (!await confirmDialog(t('adm.st.delete'),
+      t('adm.st.deleteBody', { name: station.name }),
+      t('common.delete'))) return;
     try {
       await del(`/admin/stations/${station.id}`);
-      toast('Station supprimée.');
+      toast(t('adm.st.deleted'));
       ctx.reload();
     } catch (e) { notifyError(e); }
   };
 
-  return panel('Stations', {
+  return panel(t('adm.tab.stations'), {
     count: stations.length, flush: true,
-    tools: addButton('Déclarer une station', () => edit()),
+    tools: addButton(t('adm.st.declare'), () => edit()),
   },
   stations.length
     ? table(
-      [{ label: 'Code' }, { label: 'Nom' }, { label: 'Nom API' }, { label: 'Système' },
-        { label: 'Relevé' }, { label: 'État' }, { label: '' }],
+      [{ label: t('adm.col.code') }, { label: t('adm.col.name') }, { label: t('adm.col.apiName') }, { label: t('adm.col.system') },
+        { label: t('adm.col.reading') }, { label: t('adm.col.state') }, { label: '' }],
       stations,
       (s) => h('tr', { class: s.active ? null : 'is-off' },
         h('td', h('span.station__code', s.code)),
         h('td', h('strong', s.name)),
         h('td', h('code', s.api_name)),
         h('td', s.system || '—'),
-        h('td', s.synced_at ? ago(s.synced_at) : h('em.hint', 'jamais')),
-        h('td', s.active ? 'Active' : h('em.hint', 'Désactivée')),
+        h('td', s.synced_at ? ago(s.synced_at) : h('em.hint', t('adm.never'))),
+        h('td', s.active ? t('adm.st.active') : h('em.hint', t('adm.st.disabled'))),
         rowActions(editBtn(() => edit(s)), ctx.user.role === 'admin' ? deleteBtn(() => remove(s)) : null),
       ))
-    : empty('Aucune station',
-      'Déclarez vos bases pour que la synchronisation commence à relever leurs soutes.',
-      addButton('Déclarer une station', () => edit())),
+    : empty(t('adm.st.empty'), t('adm.st.emptyHint'),
+      addButton(t('adm.st.declare'), () => edit())),
   );
 }
 
@@ -209,12 +207,11 @@ async function stationsPane(ctx) {
 async function thresholdsPane(ctx) {
   const stations = await get('/stations');
   if (!stations.length) {
-    return panel('Seuils', {}, empty('Aucune station',
-      'Déclarez d\'abord vos stations, puis lancez un relevé.'));
+    return panel(t('adm.tab.thresholds'), {}, empty(t('adm.st.empty'), t('adm.th.noStationHint')));
   }
 
   const state = ctx.seuilStation ||= String(stations[0].id);
-  const filtre = input({ type: 'search', placeholder: 'Filtrer une marchandise…' });
+  const filtre = input({ type: 'search', placeholder: t('adm.th.filter') });
   const host = h('div', loading());
 
   const choix = select(stations.map((s) => ({ value: s.id, label: s.name })), {
@@ -230,7 +227,7 @@ async function thresholdsPane(ctx) {
       const { inventory } = await get(`/admin/stations/${ctx.seuilStation}/thresholds`);
       inventaire = inventory;
       rendre();
-    } catch (e) { host.replaceChildren(empty('Lecture impossible', e.message)); }
+    } catch (e) { host.replaceChildren(empty(t('adm.readFailed'), e.message)); }
   };
 
   const rendre = () => {
@@ -241,28 +238,28 @@ async function thresholdsPane(ctx) {
 
     if (!lignes.length) {
       host.replaceChildren(empty(
-        inventaire.length ? 'Aucun résultat' : 'Soute vide',
-        inventaire.length ? 'Essayez un autre terme.'
-          : 'Lancez un relevé pour que les marchandises apparaissent.'));
+        inventaire.length ? t('recipes.noMatch') : t('stations.emptyHold'),
+        inventaire.length ? t('recipes.noMatchHint')
+          : t('adm.th.needReading')));
       return;
     }
 
     host.replaceChildren(table(
-      [{ label: 'Marchandise' }, { label: 'Sens' }, { label: 'En soute', num: true },
-        { label: 'Seuil bas', num: true }, { label: 'Plafond', num: true },
-        { label: 'Prime', num: true }, { label: 'API' }, { label: '' }],
+      [{ label: t('adm.col.goods') }, { label: t('adm.col.way') }, { label: t('adm.col.inHold'), num: true },
+        { label: t('adm.col.floor'), num: true }, { label: t('adm.col.ceiling'), num: true },
+        { label: t('adm.col.bonus'), num: true }, { label: t('adm.col.api') }, { label: '' }],
       lignes,
       (r) => h('tr', { class: [r.has_custom ? 'is-custom' : '', r.is_hidden ? 'is-off' : ''].filter(Boolean).join(' ') || null },
         h('td', h('strong', r.name),
           r.threshold_note ? h('em.hint', r.threshold_note) : null),
         h('td',
           r.is_hidden
-            ? h('span.way', { title: 'Retirée du tableau des missions' }, 'Masquée')
+            ? h('span.way', { title: t('adm.th.hiddenTitle') }, t('adm.th.hidden'))
             : h(`span.way.way--${r.flow_mode || (r.is_export ? 'export' : 'import')}`,
-              r.flow_mode === 'both' ? 'Les deux'
+              r.flow_mode === 'both' ? t('adm.th.both')
                 : (r.flow_mode || (r.is_export ? 'export' : 'import')) === 'export'
-                  ? 'À enlever' : 'À livrer'),
-          r.gate_item_id ? h('span.tag', { title: 'Mission conditionnée' }, 'si') : null),
+                  ? t('adm.th.toCollect') : t('adm.th.toDeliver')),
+          r.gate_item_id ? h('span.tag', { title: t('adm.th.gatedTitle') }, t('adm.th.gated')) : null),
         h('td', { class: 'num' }, num(r.effective_qty)),
         h('td', { class: `num ${r.custom_min_stock != null ? 'is-ok' : ''}` }, num(r.min_stock)),
         h('td', { class: `num ${r.custom_max_stock != null ? 'is-ok' : ''}` }, num(r.max_stock)),
@@ -283,66 +280,50 @@ async function thresholdsPane(ctx) {
     const max = input({ type: 'number', name: 'max_stock', min: '0', step: '1',
       class: 'input--num', value: r.custom_max_stock ?? '' });
     const note = input({ name: 'note', value: r.threshold_note || '',
-      placeholder: 'Pourquoi cette valeur ? (facultatif)' });
+      placeholder: t('adm.th.notePlaceholder') });
     const mode = select([
-      { value: 'import', label: 'Import — on apporte, objectif : plafond' },
-      { value: 'export', label: 'Export — on enlève, objectif : plancher' },
-      { value: 'both', label: 'Les deux — on apporte sous le plancher, on enlève au-dessus du plafond' },
+      { value: 'import', label: t('adm.th.modeImport') },
+      { value: 'export', label: t('adm.th.modeExport') },
+      { value: 'both', label: t('adm.th.modeBoth') },
     ], { name: 'flow_mode', value: r.flow_mode || (r.is_export ? 'export' : 'import') });
 
     const gateItem = select(
-      [{ value: '', label: 'Aucune condition' },
+      [{ value: '', label: t('adm.th.noGate') },
         ...inventaire.filter((x) => x.item_id !== r.item_id)
           .map((x) => ({ value: x.item_id, label: x.name }))],
       { name: 'gate_item_id', value: r.gate_item_id ?? '' });
 
     const gateState = select([
-      { value: 'full', label: 'est pleine (à son plafond)' },
-      { value: 'low', label: 'est basse (sous son plancher)' },
+      { value: 'full', label: t('adm.th.gateFull') },
+      { value: 'low', label: t('adm.th.gateLow') },
     ], { name: 'gate_state', value: r.gate_state || 'full' });
     const masquer = h('input', { type: 'checkbox', name: 'is_hidden', checked: !!r.is_hidden });
     const prime = input({ type: 'number', name: 'risk_bonus', min: '0.1', max: '1000', step: '0.1',
       class: 'input--num', value: r.risk_bonus ?? 1 });
     const origine = input({ name: 'origin', value: r.origin || '',
-      placeholder: 'Base PNJ, système, autre station…' });
+      placeholder: t('adm.originPlaceholder') });
     const destination = input({ name: 'destination', value: r.destination || '',
-      placeholder: 'Où revendre ou livrer…' });
+      placeholder: t('adm.th.destPlaceholder') });
 
     const valeurs = await modal({
       title: r.name,
       build: () => h('div.form',
         h('p', { style: 'margin-top:0' },
-          'Valeurs de l\'API : seuil bas ', h('strong', num(r.api_min_stock)),
-          ', plafond ', h('strong', num(r.api_max_stock)), '.'),
-        field('Seuil bas', min,
-          'En dessous, une mission d\'approvisionnement s\'ouvre automatiquement. ' +
-          'Laisser vide pour garder la valeur de l\'API.'),
-        field('Plafond', max,
-          'Sert de repère haut sur la jauge. Laisser vide pour garder la valeur de l\'API.'),
-        field('Sens de circulation', mode,
-          '« Les deux » sert aux marchandises qu\'on approvisionne quand elles ' +
-          'manquent et qu\'on écoule quand elles s\'accumulent.'),
-        field('N\'ouvrir la mission que si…', gateItem,
-          'Pour une production en chaîne : ne rappeler de faire tourner le module ' +
-          'que lorsque la matière première est disponible.'),
-        field('…cette marchandise', gateState),
-        field('Où charger  (missions entrantes)', origine,
-          'Affiché au pilote sur chaque mission d\'approvisionnement de cette marchandise.'),
-        field('Où emmener  (missions sortantes)', destination,
-          'Affiché sur les missions d\'enlèvement : où revendre ou livrer.'),
-        field('Prime de risque permanente', prime,
-          'Multiplie les points de toute livraison de cette marchandise ici. ' +
-          '1 = trajet ordinaire. Utilisez-la pour ce qui traverse un territoire ' +
-          'pirate ou s\'obtient au combat. Se cumule avec la prime ponctuelle ' +
-          'd\'une mission créée à la main.'),
-        field('Masquer cette marchandise', masquer,
-          'Aucune mission ne sera ouverte, et celles en cours seront closes. ' +
-          'Pour ce qui ne se produit que sur commande.'),
-        field('Note', note),
+          t('adm.th.apiValues', { min: num(r.api_min_stock), max: num(r.api_max_stock) })),
+        field(t('adm.col.floor'), min, t('adm.th.floorHint')),
+        field(t('adm.col.ceiling'), max, t('adm.th.ceilingHint')),
+        field(t('adm.th.flow'), mode, t('adm.th.flowHint')),
+        field(t('adm.th.gate'), gateItem, t('adm.th.gateHint')),
+        field(t('adm.th.gateItem'), gateState),
+        field(t('adm.th.originLabel'), origine, t('threshold.originHint')),
+        field(t('adm.th.destLabel'), destination, t('threshold.destinationHint')),
+        field(t('adm.th.bonus'), prime, t('adm.th.bonusHint')),
+        field(t('adm.th.hide'), masquer, t('adm.th.hideHint')),
+        field(t('common.note'), note),
       ),
       actions: [
-        { label: 'Annuler', value: null },
-        { label: 'Enregistrer', variant: 'primary', onClick: (close) => close({
+        { label: t('common.cancel'), value: null },
+        { label: t('common.save'), variant: 'primary', onClick: (close) => close({
           min_stock: min.value === '' ? null : Number(min.value),
           max_stock: max.value === '' ? null : Number(max.value),
           is_export: mode.value === 'export' ? 1 : 0,
@@ -361,21 +342,21 @@ async function thresholdsPane(ctx) {
     if (!valeurs) return;
     try {
       await put(`/admin/stations/${ctx.seuilStation}/thresholds/${r.item_id}`, valeurs);
-      toast('Seuils enregistrés.');
+      toast(t('adm.th.saved'));
       charger();
     } catch (e) { notifyError(e); }
   };
 
   const lever = async (r) => {
-    if (!await confirmDialog('Revenir aux valeurs de l\'API',
-      `${r.name} reprendra le seuil bas ${num(r.api_min_stock)} et le plafond ${num(r.api_max_stock)}.`,
-      'Rétablir')) return;
+    if (!await confirmDialog(t('adm.th.reset'),
+      t('adm.th.resetBody', { name: r.name, min: num(r.api_min_stock), max: num(r.api_max_stock) }),
+      t('adm.th.resetConfirm'))) return;
     try {
       await put(`/admin/stations/${ctx.seuilStation}/thresholds/${r.item_id}`,
         { min_stock: null, max_stock: null, is_export: 0, is_hidden: 0, flow_mode: null,
           gate_item_id: null, gate_state: null,
           risk_bonus: 1, origin: null, destination: null, note: null });
-      toast('Valeurs de l\'API rétablies.');
+      toast(t('adm.th.resetDone'));
       charger();
     } catch (e) { notifyError(e); }
   };
@@ -384,7 +365,7 @@ async function thresholdsPane(ctx) {
   filtre.addEventListener('input', () => { clearTimeout(minuteur); minuteur = setTimeout(rendre, 200); });
   charger();
 
-  return panel('Seuils par station', { flush: true, tools: choix },
+  return panel(t('adm.th.title'), { flush: true, tools: choix },
     h('div', { style: 'padding:.75rem 1rem 0' }, filtre),
     host,
   );
@@ -401,38 +382,37 @@ async function missionsPane(ctx) {
 
   const create = async () => {
     if (refuserSansMarchandise(items)) return;
-    const values = await formModal('Ouvrir une mission', () => [
-      field('Station', select(stations.map((s) => ({ value: s.id, label: s.name })), { name: 'station_id' })),
-      field('Marchandise', itemSelect(items), AIDE_MARCHANDISE),
-      field('Sens', select([
-        { value: 'import', label: 'Approvisionnement — livrer à la station' },
-        { value: 'export', label: 'Enlèvement — retirer de la station' },
+    const values = await formModal(t('adm.ms.open'), () => [
+      field(t('adm.col.station'), select(stations.map((s) => ({ value: s.id, label: s.name })), { name: 'station_id' })),
+      field(t('adm.col.goods'), itemSelect(items), AIDE_MARCHANDISE),
+      field(t('adm.col.way'), select([
+        { value: 'import', label: t('adm.ms.dirImport') },
+        { value: 'export', label: t('adm.ms.dirExport') },
       ], { name: 'direction' })),
-      field('Tonnage demandé', input({ type: 'number', name: 'target_qty', value: 0, class: 'input--num' })),
-      field('Où charger', input({ name: 'origin', placeholder: 'Base PNJ, système, autre station…' })),
-      field('Priorité', select([
-        { value: 'normal', label: 'Normale' }, { value: 'high', label: 'Haute' },
-        { value: 'critical', label: 'Critique' }, { value: 'low', label: 'Basse' },
+      field(t('adm.ms.qty'), input({ type: 'number', name: 'target_qty', value: 0, class: 'input--num' })),
+      field(t('adm.ms.origin'), input({ name: 'origin', placeholder: t('adm.originPlaceholder') })),
+      field(t('adm.col.priority'), select([
+        { value: 'normal', label: t('priority.normal') }, { value: 'high', label: t('priority.high') },
+        { value: 'critical', label: t('priority.critical') }, { value: 'low', label: t('priority.low') },
       ], { name: 'priority' })),
-      field('Prime de risque', input({ type: 'number', name: 'reward_multiplier',
+      field(t('adm.ms.bonus'), input({ type: 'number', name: 'reward_multiplier',
         min: '0.1', max: '10', step: '0.1', value: '1', class: 'input--num' }),
-      'Multiplie les points gagnés. 1 = trajet ordinaire, 1.5 = passage exposé, ' +
-      '2 = franchement dangereux. Figée à la livraison.'),
-    ], { submitLabel: 'Ouvrir la mission', validate: exigerMarchandise });
+      t('adm.ms.bonusHint')),
+    ], { submitLabel: t('adm.ms.openConfirm'), validate: exigerMarchandise });
     if (!values) return;
     try {
       await post('/admin/missions', values);
-      toast('Mission ouverte.');
+      toast(t('adm.ms.opened'));
       ctx.reload();
     } catch (e) { notifyError(e); }
   };
 
   const archive = async (m) => {
-    if (!await confirmDialog('Archiver la mission',
-      `${m.item_name} · ${m.station_name}. Les engagements en cours seront clos.`, 'Archiver')) return;
+    if (!await confirmDialog(t('adm.ms.archiveTitle'),
+      t('adm.ms.archiveBody', { item: m.item_name, station: m.station_name }), t('adm.ms.archive'))) return;
     try {
       await del(`/admin/missions/${m.id}`);
-      toast('Mission archivée.');
+      toast(t('adm.ms.archived'));
       ctx.reload();
     } catch (e) { notifyError(e); }
   };
@@ -440,29 +420,28 @@ async function missionsPane(ctx) {
   const row = (m) => h('tr',
     h('td', h('strong', m.item_name)),
     h('td', m.station_name),
-    h('td', m.direction === 'import' ? 'Approvisionnement' : 'Enlèvement'),
+    h('td', m.direction === 'import' ? t('adm.ms.supply') : t('adm.ms.collection')),
     h('td', { class: 'num' }, num(m.target_qty)),
     h('td', { class: 'num' }, num(m.pledged_qty)),
-    h('td', `${m.claim_count} pilote${m.claim_count > 1 ? 's' : ''}`),
+    h('td', t2('adm.ms.pilots', m.claim_count)),
     rowActions(deleteBtn(() => archive(m))),
   );
 
-  const cols = [{ label: 'Marchandise' }, { label: 'Station' }, { label: 'Sens' },
-    { label: 'Demandé', num: true }, { label: 'Engagé', num: true }, { label: 'Équipage' }, { label: '' }];
+  const cols = [{ label: t('adm.col.goods') }, { label: t('adm.col.station') }, { label: t('adm.col.way') },
+    { label: t('adm.col.asked'), num: true }, { label: t('adm.col.pledged'), num: true }, { label: t('adm.col.crew') }, { label: '' }];
 
   return h('div',
-    panel('Missions déclarées à la main', {
-      count: manual.length, flush: true, tools: addButton('Ouvrir une mission', create),
+    panel(t('adm.ms.manualTitle'), {
+      count: manual.length, flush: true, tools: addButton(t('adm.ms.open'), create),
     },
     manual.length ? table(cols, manual, row)
-      : empty('Aucune mission manuelle',
-        'Les besoins sous seuil s\'ouvrent tout seuls. Ouvrez une mission ici pour un besoin ponctuel.',
-        addButton('Ouvrir une mission', create))),
+      : empty(t('adm.ms.noManual'), t('adm.ms.noManualHint'),
+        addButton(t('adm.ms.open'), create))),
 
-    panel('Missions ouvertes automatiquement', { count: auto.length, flush: true },
+    panel(t('adm.ms.autoTitle'), { count: auto.length, flush: true },
       auto.length
         ? table(cols, auto, row)
-        : empty('Aucun seuil franchi', 'Toutes les soutes suivies sont au-dessus de leur seuil bas.')),
+        : empty(t('adm.ms.noAuto'), t('adm.ms.noAutoHint'))),
   );
 }
 
@@ -482,21 +461,17 @@ async function missionsPane(ctx) {
  */
 async function runsPane(ctx) {
   const state = ctx.runsFiltre ??= 'in_progress';
-  const filtre = input({ type: 'search', placeholder: 'Filtrer un pilote, une marchandise…' });
+  const filtre = input({ type: 'search', placeholder: t('adm.runs.filter') });
   const host = h('div', loading());
 
   const STATUTS = [
-    { value: 'in_progress', label: 'Engagements en cours' },
-    { value: 'delivered', label: 'Livraisons enregistrées' },
-    { value: 'cancelled', label: 'Annulés' },
-    { value: 'abandoned', label: 'Abandonnés' },
-    { value: '', label: 'Tous' },
+    { value: 'in_progress', label: t('adm.runs.stActive') },
+    { value: 'delivered', label: t('adm.runs.stDelivered') },
+    { value: 'cancelled', label: t('adm.runs.stCancelled') },
+    { value: 'abandoned', label: t('adm.runs.stAbandoned') },
+    { value: '', label: t('adm.runs.stAll') },
   ];
 
-  const LIBELLE = {
-    in_progress: 'En cours', delivered: 'Livré', cancelled: 'Annulé',
-    abandoned: 'Abandonné', expired: 'Expiré',
-  };
 
   const choix = select(STATUTS, {
     value: state,
@@ -511,7 +486,7 @@ async function runsPane(ctx) {
       const q = ctx.runsFiltre ? `?status=${encodeURIComponent(ctx.runsFiltre)}` : '';
       runs = await get(`/admin/claims${q}`);
       rendre();
-    } catch (e) { host.replaceChildren(empty('Lecture impossible', e.message)); }
+    } catch (e) { host.replaceChildren(empty(t('adm.readFailed'), e.message)); }
   };
 
   /**
@@ -522,24 +497,22 @@ async function runsPane(ctx) {
    */
   const retirer = async (r) => {
     const encours = r.status === 'in_progress';
-    const motif = input({ name: 'reason', placeholder: 'Tonnage aberrant, run jamais fait…' });
+    const motif = input({ name: 'reason', placeholder: t('adm.runs.reasonPlaceholder') });
 
     const confirme = await modal({
-      title: encours ? 'Retirer cet engagement' : 'Annuler cette livraison',
+      title: encours ? t('adm.runs.pullTitle') : t('cancel.title'),
       build: () => h('div',
         h('p', { style: 'margin-top:0' },
           h('strong', r.callsign || r.display_name), ' · ',
           h('strong', r.item_name), ` · ${r.station_name}`),
         h('p.hint', encours
-          ? `Les ${num(r.pledged_qty)} unités réservées repartent au pot commun. `
-            + 'Le pilote pourra reprendre la mission.'
-          : `Les ${num(r.delivered_qty)} unités seront retirées de ${r.station_name} `
-            + `et les ${num(r.points)} points perdus.`),
-        field('Motif', motif, 'Visible par le pilote dans son historique.'),
+          ? t('adm.runs.pullPledge', { qty: num(r.pledged_qty) })
+          : t('adm.runs.pullDelivery', { qty: num(r.delivered_qty), station: r.station_name, pts: num(r.points) })),
+        field(t('cancel.reason'), motif, t('adm.runs.reasonHint')),
       ),
       actions: [
-        { label: 'Annuler', value: null },
-        { label: encours ? 'Retirer' : 'Annuler la livraison', variant: 'danger',
+        { label: t('common.cancel'), value: null },
+        { label: encours ? t('adm.runs.pull') : t('cancel.confirm'), variant: 'danger',
           onClick: (c) => c({ reason: motif.value.trim() || null }) },
       ],
     });
@@ -547,7 +520,7 @@ async function runsPane(ctx) {
     if (!confirme) return;
     try {
       await post(`/admin/claims/${r.claim_id}/cancel`, confirme);
-      toast(encours ? 'Engagement retiré.' : 'Livraison annulée, soute rétablie.');
+      toast(encours ? t('adm.runs.pulled') : t('cancel.done'));
       charger();
     } catch (e) { notifyError(e); }
   };
@@ -560,16 +533,16 @@ async function runsPane(ctx) {
 
     if (!lignes.length) {
       host.replaceChildren(empty(
-        runs.length ? 'Aucun résultat' : 'Aucun run',
-        runs.length ? 'Essayez un autre terme.'
-          : 'Rien à corriger sur ce statut.'));
+        runs.length ? t('recipes.noMatch') : t('adm.runs.empty'),
+        runs.length ? t('recipes.noMatchHint')
+          : t('adm.runs.emptyHint')));
       return;
     }
 
     host.replaceChildren(table(
-      [{ label: 'Pilote' }, { label: 'Marchandise' }, { label: 'Station' }, { label: 'Sens' },
-        { label: 'Engagé', num: true }, { label: 'Livré', num: true },
-        { label: 'Points', num: true }, { label: 'Quand' }, { label: 'État' }, { label: '' }],
+      [{ label: t('adm.col.pilot') }, { label: t('adm.col.goods') }, { label: t('adm.col.station') }, { label: t('adm.col.way') },
+        { label: t('adm.col.pledged'), num: true }, { label: t('adm.col.delivered'), num: true },
+        { label: t('adm.col.points'), num: true }, { label: t('adm.col.when') }, { label: t('adm.col.state') }, { label: '' }],
       lignes,
       (r) => h('tr', { class: r.status === 'in_progress' || r.status === 'delivered' ? null : 'is-off' },
         h('td', h('strong', r.callsign || r.display_name),
@@ -577,16 +550,16 @@ async function runsPane(ctx) {
         h('td', r.item_name),
         h('td', r.station_name),
         h('td', h(`span.way.way--${r.direction}`,
-          r.direction === 'import' ? 'Livrer' : 'Enlever')),
+          r.direction === 'import' ? t('adm.runs.deliver') : t('adm.runs.collect'))),
         h('td', { class: 'num' }, num(r.pledged_qty)),
         h('td', { class: 'num' }, r.status === 'delivered' ? num(r.delivered_qty) : '—'),
         h('td', { class: 'num' }, r.points ? num(r.points) : '—'),
         h('td', dateShort(r.closed_at || r.claimed_at)),
-        h('td', LIBELLE[r.status] || r.status,
+        h('td', t(`status.${r.status}`),
           // Qui a retiré le run et pourquoi, sur une seule ligne : c'est ce
           // que l'officier suivant lira avant de rouvrir le sujet.
           r.cancelled_by_callsign || r.cancel_reason
-            ? h('em.hint', [r.cancelled_by_callsign ? `par ${r.cancelled_by_callsign}` : null,
+            ? h('em.hint', [r.cancelled_by_callsign ? t('adm.runs.by', { who: r.cancelled_by_callsign }) : null,
               r.cancel_reason].filter(Boolean).join(' · '))
             : null),
         rowActions(
@@ -599,7 +572,7 @@ async function runsPane(ctx) {
   filtre.addEventListener('input', () => runs.length && rendre());
   charger();
 
-  return panel('Runs des pilotes', {
+  return panel(t('adm.runs.title'), {
     flush: true,
     tools: h('span', { style: 'display:flex;gap:.5rem;align-items:center' }, choix, filtre),
   }, host);
@@ -608,7 +581,7 @@ async function runsPane(ctx) {
 /* ======================================================= marchandises */
 
 async function itemsPane(ctx) {
-  const search = input({ type: 'search', placeholder: 'Filtrer les marchandises…' });
+  const search = input({ type: 'search', placeholder: t('adm.item.filter') });
   const host = h('div', loading());
 
   const load = async () => {
@@ -617,44 +590,44 @@ async function itemsPane(ctx) {
       const items = await get(`/admin/items?q=${encodeURIComponent(search.value.trim())}`);
       host.replaceChildren(items.length
         ? table(
-          [{ label: 'Nom' }, { label: 'Identifiant interne' }, { label: 'Catégorie' },
-            { label: 'Où en trouver' }, { label: '' }],
+          [{ label: t('adm.col.name') }, { label: t('adm.col.internalId') }, { label: t('adm.col.category') },
+            { label: t('adm.col.whereToFind') }, { label: '' }],
           items,
           (it) => h('tr',
             h('td', h('strong', it.name)),
             h('td', it.commodity_id ? h('code', it.commodity_id) : h('em.hint', '—')),
             h('td', it.category),
-            h('td', it.vendor_hint || h('em.hint', 'non renseigné')),
+            h('td', it.vendor_hint || h('em.hint', t('adm.item.notSet'))),
             rowActions(editBtn(() => edit(it)),
               ctx.user.role === 'admin' ? deleteBtn(() => remove(it)) : null),
           ))
-        : empty('Aucune marchandise', 'Elles apparaissent toutes seules au premier relevé de l\'API.'));
-    } catch (e) { host.replaceChildren(empty('Lecture impossible', e.message)); }
+        : empty(t('adm.item.empty'), t('adm.item.emptyHint')));
+    } catch (e) { host.replaceChildren(empty(t('adm.readFailed'), e.message)); }
   };
 
   const edit = async (item = null) => {
-    const values = await formModal(item ? 'Modifier la marchandise' : 'Ajouter une marchandise', () => [
-      field('Nom', input({ name: 'name', value: item?.name || '' }),
-        'Doit correspondre au nom renvoyé par l\'API pour que les stocks se rattachent.'),
-      field('Identifiant interne', input({ name: 'commodity_id', value: item?.commodity_id || '' }),
-        'Nickname du fichier de recettes Discovery. Sert à relier recettes et stocks.'),
-      field('Catégorie', input({ name: 'category', value: item?.category || 'commodity' })),
-      field('Où en trouver', input({ name: 'vendor_hint', value: item?.vendor_hint || '' }),
-        'Affiché aux pilotes sur la mission.'),
+    const values = await formModal(item ? t('adm.item.edit') : t('adm.item.add'), () => [
+      field(t('adm.col.name'), input({ name: 'name', value: item?.name || '' }),
+        t('adm.item.nameHint')),
+      field(t('adm.col.internalId'), input({ name: 'commodity_id', value: item?.commodity_id || '' }),
+        t('adm.item.idHint')),
+      field(t('adm.col.category'), input({ name: 'category', value: item?.category || 'commodity' })),
+      field(t('adm.col.whereToFind'), input({ name: 'vendor_hint', value: item?.vendor_hint || '' }),
+        t('adm.item.whereHint')),
     ]);
     if (!values) return;
     try {
       if (item) await put(`/admin/items/${item.id}`, values);
       else await post('/admin/items', values);
-      toast('Marchandise enregistrée.');
+      toast(t('adm.item.saved'));
       load();
     } catch (e) { notifyError(e); }
   };
 
   const remove = async (item) => {
-    if (!await confirmDialog('Supprimer la marchandise',
-      `${item.name} disparaîtra des stocks, recettes et routes.`, 'Supprimer')) return;
-    try { await del(`/admin/items/${item.id}`); toast('Marchandise supprimée.'); load(); }
+    if (!await confirmDialog(t('adm.item.delete'),
+      t('adm.item.deleteBody', { name: item.name }), t('common.delete'))) return;
+    try { await del(`/admin/items/${item.id}`); toast(t('adm.item.deleted')); load(); }
     catch (e) { notifyError(e); }
   };
 
@@ -662,7 +635,7 @@ async function itemsPane(ctx) {
   search.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(load, 250); });
   load();
 
-  return panel('Marchandises', { flush: true, tools: addButton('Ajouter', () => edit()) },
+  return panel(t('adm.tab.items'), { flush: true, tools: addButton(t('adm.add'), () => edit()) },
     h('div', { style: 'padding:.75rem 1rem 0' }, search), host);
 }
 
@@ -675,44 +648,43 @@ async function routesPane(ctx) {
 
   const create = async () => {
     if (refuserSansMarchandise(items)) return;
-    const values = await formModal('Déclarer une route', () => [
-      field('Marchandise', itemSelect(items), AIDE_MARCHANDISE),
-      field('Station de destination',
+    const values = await formModal(t('adm.rt.declare'), () => [
+      field(t('adm.col.goods'), itemSelect(items), AIDE_MARCHANDISE),
+      field(t('adm.rt.dest'),
         select(stations.map((s) => ({ value: s.id, label: s.name })), { name: 'dest_id' })),
-      field('Station d\'origine',
-        select([{ value: '', label: 'Hors faction — préciser ci-dessous' },
+      field(t('adm.rt.source'),
+        select([{ value: '', label: t('adm.rt.outside') },
           ...stations.map((s) => ({ value: s.id, label: s.name }))], { name: 'source_id' })),
-      field('Origine hors faction', input({ name: 'source_label', placeholder: 'Base PNJ, système…' })),
-      field('Priorité', input({ type: 'number', name: 'priority', value: 0, class: 'input--num' })),
-    ], { submitLabel: 'Déclarer', validate: exigerMarchandise });
+      field(t('adm.rt.outsideLabel'), input({ name: 'source_label', placeholder: t('adm.rt.outsidePlaceholder') })),
+      field(t('adm.col.priority'), input({ type: 'number', name: 'priority', value: 0, class: 'input--num' })),
+    ], { submitLabel: t('adm.rt.declareConfirm'), validate: exigerMarchandise });
     if (!values) return;
-    try { await post('/admin/routes', values); toast('Route déclarée.'); ctx.reload(); }
+    try { await post('/admin/routes', values); toast(t('adm.rt.declared')); ctx.reload(); }
     catch (e) { notifyError(e); }
   };
 
   const remove = async (r) => {
-    if (!await confirmDialog('Supprimer la route', `${r.item_name} vers ${r.dest_name}.`, 'Supprimer')) return;
-    try { await del(`/admin/routes/${r.id}`); toast('Route supprimée.'); ctx.reload(); }
+    if (!await confirmDialog(t('adm.rt.delete'), t('adm.rt.deleteBody', { item: r.item_name, dest: r.dest_name }), t('common.delete'))) return;
+    try { await del(`/admin/routes/${r.id}`); toast(t('adm.rt.deleted')); ctx.reload(); }
     catch (e) { notifyError(e); }
   };
 
-  return panel('Routes commerciales', {
-    count: routes.length, flush: true, tools: addButton('Déclarer une route', create),
+  return panel(t('adm.rt.title'), {
+    count: routes.length, flush: true, tools: addButton(t('adm.rt.declare'), create),
   },
   routes.length
-    ? table([{ label: 'Marchandise' }, { label: 'Origine' }, { label: 'Destination' },
-      { label: 'Priorité', num: true }, { label: '' }],
+    ? table([{ label: t('adm.col.goods') }, { label: t('adm.col.origin') }, { label: t('adm.col.destination') },
+      { label: t('adm.col.priority'), num: true }, { label: '' }],
     routes,
     (r) => h('tr',
       h('td', h('strong', r.item_name)),
-      h('td', r.source_name || h('em.hint', r.source_label || 'non précisée')),
+      h('td', r.source_name || h('em.hint', r.source_label || t('adm.rt.unspecified'))),
       h('td', r.dest_name),
       h('td', { class: 'num' }, num(r.priority)),
       rowActions(deleteBtn(() => remove(r))),
     ))
-    : empty('Aucune route',
-      'Une route dit d\'où vient une marchandise. Les pilotes la voient sur la mission.',
-      addButton('Déclarer une route', create)),
+    : empty(t('adm.rt.empty'), t('adm.rt.emptyHint'),
+      addButton(t('adm.rt.declare'), create)),
   );
 }
 
@@ -731,7 +703,7 @@ async function recipesPane(ctx) {
     // plutôt que d'inventer une option, et la ligne se resaisit.
     const addRow = (comp = null) => rows.appendChild(h('div.comp-row',
       itemSelect(items, { name: null, class: 'comp-item', value: comp?.item_id ?? '' }),
-      input({ type: 'number', class: 'input--num comp-qty', placeholder: 'Qté', min: '1', value: comp?.quantity || '' }),
+      input({ type: 'number', class: 'input--num comp-qty', placeholder: t('adm.rc.qty'), min: '1', value: comp?.quantity || '' }),
       h('button.btn.btn--ghost.btn--sm', { type: 'button', onClick: (e) => e.target.parentElement.remove() }, '×'),
     ));
 
@@ -740,22 +712,22 @@ async function recipesPane(ctx) {
 
     let form;
     const values = await modal({
-      title: recipe ? 'Modifier la recette' : 'Créer une recette',
+      title: recipe ? t('adm.rc.edit') : t('adm.rc.create'),
       width: '640px',
       build: () => (form = h('div.form',
-        field('Nom de l\'arme', input({ name: 'name', value: recipe?.name || '' })),
-        field('Catégorie', input({ name: 'category', value: recipe?.category || 'weapon' })),
-        field('Fabriquée à',
-          select([{ value: '', label: 'Indifférent' },
+        field(t('adm.rc.name'), input({ name: 'name', value: recipe?.name || '' })),
+        field(t('adm.col.category'), input({ name: 'category', value: recipe?.category || 'weapon' })),
+        field(t('adm.rc.madeAt'),
+          select([{ value: '', label: t('adm.rc.anywhere') },
             ...stations.map((s) => ({ value: s.id, label: s.name }))],
           { name: 'station_id', value: recipe?.station_id ?? '' })),
-        field('Notes', input({ name: 'notes', value: recipe?.notes || '' })),
-        h('div.field', h('span', 'Composants'), rows,
-          h('button.btn.btn--ghost.btn--sm', { type: 'button', onClick: () => addRow() }, 'Ajouter un composant')),
+        field(t('adm.rc.notes'), input({ name: 'notes', value: recipe?.notes || '' })),
+        h('div.field', h('span', t('adm.col.components')), rows,
+          h('button.btn.btn--ghost.btn--sm', { type: 'button', onClick: () => addRow() }, t('adm.rc.addComponent'))),
       )),
       actions: [
-        { label: 'Annuler', value: null },
-        { label: 'Enregistrer', variant: 'primary', onClick: (close) => {
+        { label: t('common.cancel'), value: null },
+        { label: t('common.save'), variant: 'primary', onClick: (close) => {
           const base = readForm(form);
           const saisies = [...rows.querySelectorAll('.comp-row')].map((r) => ({
             item_id: Number(r.querySelector('.comp-item').value) || 0,
@@ -764,7 +736,7 @@ async function recipesPane(ctx) {
           // Une ligne chiffrée mais sans marchandise part d'un menu resté
           // sur le choix vide : l'écarter en silence amputerait la recette.
           if (saisies.some((c) => c.quantity > 0 && !c.item_id)) {
-            return toast('Un composant est resté sans marchandise.', 'err');
+            return toast(t('adm.rc.orphan'), 'err');
           }
           base.components = saisies.filter((c) => c.item_id && c.quantity > 0);
           close(base);
@@ -773,56 +745,53 @@ async function recipesPane(ctx) {
     });
 
     if (!values) return;
-    if (!values.name) return toast('La recette doit avoir un nom.', 'err');
+    if (!values.name) return toast(t('adm.rc.nameRequired'), 'err');
     try {
       if (recipe) await put(`/admin/recipes/${recipe.id}`, values);
       else await post('/admin/recipes', values);
-      toast('Recette enregistrée.');
+      toast(t('adm.rc.saved'));
       ctx.reload();
     } catch (e) { notifyError(e); }
   };
 
   const remove = async (r) => {
-    if (!await confirmDialog('Supprimer la recette', `${r.name} sera retirée de l'armurerie.`, 'Supprimer')) return;
-    try { await del(`/admin/recipes/${r.id}`); toast('Recette supprimée.'); ctx.reload(); }
+    if (!await confirmDialog(t('adm.rc.delete'), t('adm.rc.deleteBody', { name: r.name }), t('common.delete'))) return;
+    try { await del(`/admin/recipes/${r.id}`); toast(t('adm.rc.deleted')); ctx.reload(); }
     catch (e) { notifyError(e); }
   };
 
   const runImport = async () => {
     const replace = await modal({
-      title: 'Importer depuis Discovery',
+      title: t('adm.rc.import'),
       build: () => h('div',
-        h('p', { style: 'margin-top:0' },
-          'Le fichier public de recettes sera relu et les armes ajoutées à l\'armurerie.'),
-        h('p.hint', { style: 'margin:0' },
-          'Conserver l\'existant garde vos recettes saisies à la main et vos correspondances de noms. ' +
-          'Tout remplacer les efface.'),
+        h('p', { style: 'margin-top:0' }, t('adm.rc.importBody')),
+        h('p.hint', { style: 'margin:0' }, t('adm.rc.importHint')),
       ),
       actions: [
-        { label: 'Annuler', value: null },
-        { label: 'Conserver l\'existant', variant: 'primary', value: false },
-        { label: 'Tout remplacer', variant: 'danger', value: true },
+        { label: t('common.cancel'), value: null },
+        { label: t('adm.rc.keep'), variant: 'primary', value: false },
+        { label: t('adm.rc.replace'), variant: 'danger', value: true },
       ],
     });
     if (replace == null) return;
-    toast('Import en cours…');
+    toast(t('adm.rc.importing'));
     try {
       const r = await post('/admin/recipes/import', { replace });
-      toast(`${num(r.recipes ?? 0)} recettes importées.`);
+      toast(t('adm.rc.imported', { n: num(r.recipes ?? 0) }));
       ctx.reload();
     } catch (e) { notifyError(e); }
   };
 
-  return panel('Recettes', {
+  return panel(t('adm.tab.recipes'), {
     count: recipes.length, flush: true,
     tools: h('span', { style: 'display:flex;gap:.5rem' },
       ctx.user.role === 'admin'
-        ? h('button.btn.btn--ghost.btn--sm', { type: 'button', onClick: runImport }, 'Importer depuis Discovery')
+        ? h('button.btn.btn--ghost.btn--sm', { type: 'button', onClick: runImport }, t('adm.rc.import'))
         : null,
-      addButton('Créer', () => edit())),
+      addButton(t('adm.rc.createShort'), () => edit())),
   },
   recipes.length
-    ? table([{ label: 'Arme' }, { label: 'Catégorie' }, { label: 'Composants', num: true }, { label: '' }],
+    ? table([{ label: t('adm.col.weapon') }, { label: t('adm.col.category') }, { label: t('adm.col.components'), num: true }, { label: '' }],
       recipes,
       (r) => h('tr',
         h('td', h('strong', r.name)),
@@ -830,9 +799,8 @@ async function recipesPane(ctx) {
         h('td', { class: 'num' }, num(r.components.length)),
         rowActions(editBtn(() => edit(r)), deleteBtn(() => remove(r))),
       ))
-    : empty('Aucune recette',
-      'Importez le fichier Discovery pour peupler l\'armurerie d\'un coup, ou saisissez une recette.',
-      addButton('Créer une recette', () => edit())),
+    : empty(t('recipes.empty'), t('adm.rc.emptyHint'),
+      addButton(t('adm.rc.create'), () => edit())),
   );
 }
 
@@ -843,32 +811,32 @@ async function usersPane(ctx) {
 
   const edit = async (user) => {
     const values = await formModal(user.display_name || user.username, () => [
-      field('Indicatif en jeu', input({ name: 'callsign', value: user.callsign || '' }),
-        'Nom affiché sur les missions et le classement.'),
-      field('Rôle', select([
-        { value: 'member', label: 'Pilote — prend et livre des missions' },
-        { value: 'officer', label: 'Officier — gère stations, missions et recettes' },
-        { value: 'admin', label: 'Administrateur — gère aussi les pilotes' },
+      field(t('adm.us.callsign'), input({ name: 'callsign', value: user.callsign || '' }),
+        t('adm.us.callsignHint')),
+      field(t('adm.col.role'), select([
+        { value: 'member', label: t('adm.us.roleMember') },
+        { value: 'officer', label: t('adm.us.roleOfficer') },
+        { value: 'admin', label: t('adm.us.roleAdmin') },
       ], { name: 'role', value: user.role })),
-      field('Compte actif', h('input', { type: 'checkbox', name: 'active', checked: !!user.active })),
+      field(t('adm.us.activeField'), h('input', { type: 'checkbox', name: 'active', checked: !!user.active })),
     ]);
     if (!values) return;
-    try { await put(`/admin/users/${user.id}`, values); toast('Pilote mis à jour.'); ctx.reload(); }
+    try { await put(`/admin/users/${user.id}`, values); toast(t('adm.us.updated')); ctx.reload(); }
     catch (e) { notifyError(e); }
   };
 
-  return panel('Pilotes', { count: users.length, flush: true },
-    table([{ label: 'Pilote' }, { label: 'Rôle' }, { label: 'Runs', num: true },
-      { label: 'Dernière visite' }, { label: 'État' }, { label: '' }],
+  return panel(t('adm.tab.users'), { count: users.length, flush: true },
+    table([{ label: t('adm.col.pilot') }, { label: t('adm.col.role') }, { label: t('adm.tab.runs'), num: true },
+      { label: t('adm.col.lastVisit') }, { label: t('adm.col.state') }, { label: '' }],
     users,
     (u) => h('tr', { class: u.active ? null : 'is-off' },
       h('td', h('strong', u.callsign || u.display_name || u.username),
         u.callsign ? h('em.hint', u.display_name || u.username) : null),
       h('td', h(`span.tag${u.role === 'admin' ? '.tag--admin' : u.role === 'officer' ? '.tag--officer' : ''}`,
-        { }, u.role === 'admin' ? 'Administrateur' : u.role === 'officer' ? 'Officier' : 'Pilote')),
+        { }, t(`role.${u.role}`))),
       h('td', { class: 'num' }, num(u.runs)),
-      h('td', u.last_login_at ? ago(u.last_login_at) : h('em.hint', 'jamais')),
-      h('td', u.active ? 'Actif' : h('em.hint', 'Désactivé')),
+      h('td', u.last_login_at ? ago(u.last_login_at) : h('em.hint', t('adm.never'))),
+      h('td', u.active ? t('adm.us.active') : h('em.hint', t('adm.us.disabled'))),
       rowActions(editBtn(() => edit(u))),
     )),
   );
@@ -881,15 +849,15 @@ async function syncPane(ctx) {
 
   const runNow = async (btn) => {
     btn.disabled = true;
-    btn.textContent = 'Relevé en cours…';
+    btn.textContent = t('adm.sync.running');
     try {
       const r = await post('/admin/sync/run');
-      toast(`Relevé terminé : ${num(r.stations ?? r.stations_seen ?? 0)} stations.`);
+      toast(t('adm.sync.done', { n: num(r.stations ?? r.stations_seen ?? 0) }));
       ctx.reload();
     } catch (e) {
       notifyError(e);
       btn.disabled = false;
-      btn.textContent = 'Lancer un relevé';
+      btn.textContent = t('adm.sync.run');
     }
   };
 
@@ -897,12 +865,12 @@ async function syncPane(ctx) {
   const analyserRoutes = async (btn) => {
     btn.disabled = true;
     const libelle = btn.textContent;
-    btn.textContent = 'Analyse…';
+    btn.textContent = t('adm.sync.analysing');
     try {
       const r = await post('/admin/routes/analyze');
       toast(r.trouvees
-        ? `${num(r.trouvees)} route(s) suggérée(s) sur ${num(r.analysees)} besoin(s).`
-        : 'Aucune route trouvée. Vérifiez que des missions sont ouvertes.');
+        ? t('adm.sync.routesFound', { found: num(r.trouvees), needs: num(r.analysees) })
+        : t('adm.sync.routesNone'));
     } catch (e) {
       notifyError(e);
     } finally {
@@ -911,19 +879,19 @@ async function syncPane(ctx) {
     }
   };
 
-  const STATUS = { ok: 'Terminé', partial: 'Partiel', error: 'Échec', running: 'En cours' };
+  const STATUS = { ok: t('adm.sync.stOk'), partial: t('adm.sync.stPartial'), error: t('adm.sync.stError'), running: t('adm.sync.stRunning') };
 
-  return panel('Relevés de l\'API darkstat', {
+  return panel(t('adm.sync.title'), {
     count: logs.length, flush: true,
     tools: h('span', { style: 'display:flex;gap:.5rem' },
       h('button.btn.btn--ghost.btn--sm', { type: 'button', onClick: (e) => analyserRoutes(e.target) },
-        'Analyser les routes'),
+        t('adm.sync.analyse')),
       h('button.btn.btn--primary.btn--sm', { type: 'button', onClick: (e) => runNow(e.target) },
-        'Lancer un relevé')),
+        t('adm.sync.run'))),
   },
   logs.length
-    ? table([{ label: 'Début' }, { label: 'Durée' }, { label: 'État' },
-      { label: 'Stations', num: true }, { label: 'Lignes', num: true }, { label: 'Message' }],
+    ? table([{ label: t('adm.col.start') }, { label: t('adm.col.duration') }, { label: t('adm.col.state') },
+      { label: t('adm.tab.stations'), num: true }, { label: t('adm.col.rows'), num: true }, { label: t('adm.col.message') }],
     logs,
     (l) => h('tr', { class: l.status === 'error' ? 'is-low' : null },
       h('td', dateShort(l.started_at)),
@@ -935,8 +903,7 @@ async function syncPane(ctx) {
       h('td', { class: 'num' }, num(l.rows_written)),
       h('td', h('em.hint', l.message || '')),
     ))
-    : empty('Aucun relevé',
-      'Le premier relevé part au démarrage du serveur. Vous pouvez aussi en déclencher un maintenant.'),
+    : empty(t('adm.sync.empty'), t('adm.sync.emptyHint')),
   );
 }
 
