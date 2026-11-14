@@ -254,6 +254,11 @@ function writeSnapshots(pobs, stamp = nowSql()) {
       const shopItems = extraireMarchandises(pob);
       if (!shopItems.length) vides.push(station.api_name);
       let used = 0;
+      // darkstat répète une marchandise autant de fois qu'elle a de volumes
+      // par classe de vaisseau : même stock, même prix, seul `volume`
+      // change. Compter chaque répétition gonflait la soute occupée —
+      // Military Salvage pesait six fois son stock.
+      const vues = new Set();
 
       for (const raw of shopItems) {
         // Certaines fiches darkstat suffixent le nom d'un « () » vide sans
@@ -262,6 +267,8 @@ function writeSnapshots(pobs, stamp = nowSql()) {
         if (!nomBrut) continue;
         const name = nomBrut.replace(/\s*\(\s*\)\s*$/, '').trim();
         if (!name) continue;
+        if (vues.has(name.toLowerCase())) continue;
+        vues.add(name.toLowerCase());
 
         const nickname = String(raw.nickname || '').trim() || null;
         const categorie = String(raw.category || 'commodity').trim() || 'commodity';
@@ -270,12 +277,14 @@ function writeSnapshots(pobs, stamp = nowSql()) {
         // même chose :
         //   • original_volume — le volume unitaire du bien, le même partout
         //     (Military Salvage : 1) ;
-        //   • volume — ce même volume une fois appliquée la compression de
-        //     soute propre à la base (Military Salvage : 0,2 ou 0,4).
+        //   • volume — ce même volume pour la classe de vaisseau que la
+        //     ligne désigne dans `ship_class` (Military Salvage : 0,2 sur
+        //     un chasseur, 0,4 sur un cargo léger).
         // items.volume sert à comparer l'effort de transport d'une
         // marchandise à l'autre : c'est le volume de référence qu'il faut.
-        // Retenir « volume » laissait la dernière base relevée fixer le
-        // barème de tout le monde.
+        // Retenir « volume » laissait la dernière ligne lue fixer le
+        // barème de tout le monde. Les volumes par classe, eux, sont
+        // relevés avec le catalogue des vaisseaux (`sync/ships.js`).
         const volume = volumeUnitaire(raw.original_volume, raw.volume);
 
         let item = findItem.get(name);

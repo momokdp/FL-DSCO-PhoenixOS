@@ -52,10 +52,16 @@ function multiplicateur(mission) {
  * La quantité est bornée par ce qui reste à couvrir : proposer une cale
  * pleine sur une mission qui n'attend plus que 40 unités gonflerait le
  * score d'un circuit sans intérêt.
+ *
+ * `holdVolume` est le volume de la marchandise dans la soute du vaisseau
+ * considéré, quand sa classe en profite d'un réduit. Il ne décide que de
+ * ce qui tient à bord ; les points se comptent sur `volume`, la référence.
  */
-export function pointsSegment({ openQty, volume, multiplier }, cale) {
+export function pointsSegment({ openQty, volume, holdVolume = null, multiplier }, cale) {
   const vol = volumeDe(volume);
-  const tenable = Math.floor(Math.max(0, cale) / vol);
+  // Même marge d'arrondi que `unitesTenables` : 4 700 / 0,2 doit donner
+  // 23 500, pas 23 499.
+  const tenable = Math.floor(Math.max(0, cale) / volumeDe(holdVolume ?? volume) + 1e-6);
   const qty = Math.max(0, Math.min(Number(openQty) || 0, tenable));
   return { qty, points: Math.round(qty * vol * (Number(multiplier) || 1)) };
 }

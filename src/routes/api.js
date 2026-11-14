@@ -145,6 +145,9 @@ apiRouter.get('/loops', requireAuth, (req, res) => {
     // Le pilote peut simuler une autre cale sans toucher à son profil.
     cargo: int(req.query.cargo),
     shipClass: req.query.ship || null,
+    // Un vaisseau du hangar : sa classe décide du volume de certaines
+    // marchandises, ce qu'une cale saisie à la main ne peut pas dire.
+    shipId: int(req.query.shipId),
   }));
 });
 

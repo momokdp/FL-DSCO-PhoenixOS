@@ -10,6 +10,12 @@
      * la prise de mission, qui retient le vaisseau engagé ;
      * la livraison, plafonnée à ce que ce vaisseau emporte ;
      * les circuits, mis à l'échelle du vaisseau actif.
+
+   Ce qu'un vaisseau emporte ne tient pas qu'à sa soute. Le jeu réduit le
+   volume de certaines marchandises selon la classe du vaisseau : le
+   minerai sur un vaisseau de minage, les passagers sur un paquebot. Le
+   barème est relevé avec le catalogue, et `volumeEnSoute` le consulte.
+   Il ne sert qu'à borner les quantités — jamais à compter les points.
    ===================================================================== */
 
 import { db, audit } from '../db/index.js';
@@ -49,10 +55,42 @@ export function unitesTenables(soute, volume) {
   return Math.floor(cale / vol + 1e-6);
 }
 
+/**
+ * Volume qu'occupe une unité de marchandise dans la soute d'un vaisseau
+ * de la classe donnée.
+ *
+ * Sans dérogation pour cette classe — le cas ordinaire —, c'est le volume
+ * de référence. Un vaisseau sans modèle n'a pas de classe connue et s'en
+ * tient lui aussi à la référence.
+ */
+export function volumeEnSoute(commodityNick, gameClass, reference) {
+  if (!commodityNick || gameClass == null) return reference;
+  const l = db.prepare(
+    'SELECT volume FROM hold_volumes WHERE commodity_nick = ? AND game_class = ?',
+  ).get(commodityNick, gameClass);
+  return l && l.volume > 0 ? l.volume : reference;
+}
+
+/**
+ * Le barème entier, par marchandise : { classe: volume }.
+ *
+ * Pour les listes — missions, circuits —, où interroger la table ligne à
+ * ligne coûterait une requête par marchandise. Il tient en une centaine de
+ * lignes.
+ */
+export function baremeDesSoutes() {
+  const bareme = new Map();
+  for (const l of db.prepare('SELECT commodity_nick, game_class, volume FROM hold_volumes').all()) {
+    if (!bareme.has(l.commodity_nick)) bareme.set(l.commodity_nick, {});
+    bareme.get(l.commodity_nick)[l.game_class] = l.volume;
+  }
+  return bareme;
+}
+
 const SELECTION = `
   SELECT ps.id, ps.user_id, ps.name, ps.model_nick, ps.legacy_cargo, ps.legacy_class,
          ps.created_at, ps.retired_at,
-         sm.name AS model_name, sm.type AS model_type,
+         sm.name AS model_name, sm.type AS model_type, sm.game_class AS model_class,
          sm.hold_size AS model_hold, sm.present AS model_present
   FROM pilot_ships ps
   LEFT JOIN ship_models sm ON sm.nickname = ps.model_nick
@@ -75,6 +113,9 @@ function versVaisseau(l, activeId = null) {
     shipClass: rattache
       ? allureDe(l.model_type)
       : (ALLURES.includes(l.legacy_class) ? l.legacy_class : 'transport'),
+    // La classe au sens du jeu : c'est elle qui décide du volume réduit de
+    // certaines marchandises. Rien à voir avec l'allure ci-dessus.
+    gameClass: rattache ? (l.model_class ?? null) : null,
     // Seul un vaisseau rattaché peut prendre une mission : sa soute vient
     // du jeu, pas d'une saisie.
     usable: rattache,

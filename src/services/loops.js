@@ -16,7 +16,7 @@ import { config } from '../config.js';
 import { db } from '../db/index.js';
 import { CLASSES } from '../sync/paths.js';
 import { pointsSegment } from '../sync/loops.js';
-import { activeShip } from './hangar.js';
+import { activeShip, shipOf, baremeDesSoutes } from './hangar.js';
 
 export const CLASSE_PAR_DEFAUT = 'transport';
 
@@ -27,13 +27,19 @@ export const CLASSE_PAR_DEFAUT = 'transport';
  * de référence et l'écran l'annonce : mieux vaut un chiffre affiché comme
  * approximatif qu'un écran vide en attendant un réglage.
  */
-export function caleDe(user) {
-  const ship = user?.id != null ? activeShip(user.id) : null;
+export function caleDe(user, shipId = null) {
+  // Un vaisseau du hangar désigné par l'écran l'emporte sur l'actif.
+  const choisi = user?.id != null && shipId != null ? shipOf(user.id, shipId) : null;
+  const ship = choisi || (user?.id != null ? activeShip(user.id) : null);
   const valide = !!ship && ship.hold > 0;
   return {
     cargo: valide ? ship.hold : config.loops.refCargo,
     shipClass: ship && CLASSES.includes(ship.shipClass) ? ship.shipClass : CLASSE_PAR_DEFAUT,
+    // La classe au sens du jeu, pour les marchandises qu'elle emporte à
+    // volume réduit.
+    gameClass: valide ? ship.gameClass : null,
     declaree: valide,
+    choisi: !!choisi && valide,
   };
 }
 
@@ -47,8 +53,8 @@ const LECTURE = () => (lecture ||= db.prepare(`
   SELECT
     l.*,
     st.name AS station_name, st.code AS station_code,
-    ii.name AS in_item_name,
-    oi.name AS out_item_name,
+    ii.name AS in_item_name,  ii.commodity_id AS in_commodity,
+    oi.name AS out_item_name, oi.commodity_id AS out_commodity,
     pin.transport   AS in_transport,   pin.frigate   AS in_frigate,   pin.freighter   AS in_freighter,
     pout.transport  AS out_transport,  pout.frigate  AS out_frigate,  pout.freighter  AS out_freighter,
     pback.transport AS back_transport, pback.frigate AS back_frigate, pback.freighter AS back_freighter,
@@ -77,16 +83,23 @@ const LECTURE = () => (lecture ||= db.prepare(`
  * rend inutile toute règle interdisant de changer de région — un long
  * détour se disqualifie de lui-même.
  */
-export function listLoops({ user, stationId = null, cargo = null, shipClass = null } = {}) {
-  const reglage = caleDe(user);
+export function listLoops({ user, stationId = null, cargo = null, shipClass = null, shipId = null } = {}) {
+  const reglage = caleDe(user, shipId);
 
   // Une cale passée dans l'URL l'emporte sur le profil : le pilote essaie
-  // un autre vaisseau sans avoir à modifier son réglage permanent.
-  const demandee = Number(cargo);
-  const cale = Number.isFinite(demandee) && demandee > 0
-    ? Math.round(demandee)
-    : reglage.cargo;
-  const classe = CLASSES.includes(shipClass) ? shipClass : reglage.shipClass;
+  // un autre vaisseau sans avoir à modifier son réglage permanent. Un
+  // vaisseau du hangar désigné par son identifiant prime sur les deux : sa
+  // soute et son allure se lisent sur son modèle.
+  const demandee = reglage.choisi ? NaN : Number(cargo);
+  const simulee = Number.isFinite(demandee) && demandee > 0;
+  const cale = simulee ? Math.round(demandee) : reglage.cargo;
+  const classe = !reglage.choisi && CLASSES.includes(shipClass) ? shipClass : reglage.shipClass;
+
+  // Une cale simulée n'est celle d'aucun modèle : elle n'a pas de classe,
+  // donc aucun volume réduit à faire valoir.
+  const gameClass = simulee ? null : reglage.gameClass;
+  const bareme = gameClass == null ? null : baremeDesSoutes();
+  const enSoute = (nick, reference) => bareme?.get(nick)?.[gameClass] ?? reference;
 
   const lignes = LECTURE().all({ station_id: stationId });
   const sorties = [];
@@ -108,9 +121,11 @@ export function listLoops({ user, stationId = null, cargo = null, shipClass = nu
     if (!(total > 0)) continue;
 
     const entrant = pointsSegment(
-      { openQty: l.in_open_qty, volume: l.in_volume, multiplier: l.in_multiplier }, cale);
+      { openQty: l.in_open_qty, volume: l.in_volume, multiplier: l.in_multiplier,
+        holdVolume: enSoute(l.in_commodity, l.in_volume) }, cale);
     const sortant = pointsSegment(
-      { openQty: l.out_open_qty, volume: l.out_volume, multiplier: l.out_multiplier }, cale);
+      { openQty: l.out_open_qty, volume: l.out_volume, multiplier: l.out_multiplier,
+        holdVolume: enSoute(l.out_commodity, l.out_volume) }, cale);
 
     const points = entrant.points + sortant.points;
     if (points <= 0) continue;
@@ -179,7 +194,7 @@ export function listLoops({ user, stationId = null, cargo = null, shipClass = nu
     shipClass: classe,
     // L'écran doit pouvoir dire « estimé sur une cale de référence » tant
     // que le pilote n'a pas déclaré la sienne.
-    usingDefaultCargo: !reglage.declaree && !(Number.isFinite(demandee) && demandee > 0),
+    usingDefaultCargo: !reglage.declaree && !simulee,
     computedAt: lignes[0]?.computed_at ?? null,
     loops: sorties,
   };

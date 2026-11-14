@@ -8,7 +8,7 @@ import {
 } from './ui.js';
 import { t, t2 } from './i18n.js';
 import { cadences, refreshSeconds, setRefreshSeconds } from './refresh.js';
-import { holdUnits, shipLabel } from './hangar.js';
+import { holdUnits, holdVolume, shipLabel } from './hangar.js';
 
 const PRIORITES = ['critical', 'high', 'normal', 'low'];
 
@@ -347,8 +347,10 @@ async function claimFlow(m, ctx) {
   }
 
   let vaisseau = vaisseaux.find((s) => s.active) || vaisseaux[0] || null;
-  const plafond = () => (vaisseau
-    ? Math.min(restant, holdUnits(vaisseau.hold, m.item_volume)) : restant);
+  // Ce que le vaisseau emporte de CETTE marchandise : sa soute, divisée par
+  // le volume qu'elle y occupe — réduit pour certaines classes de vaisseau.
+  const contenanceDe = (s) => holdUnits(s.hold, holdVolume(m, s));
+  const plafond = () => (vaisseau ? Math.min(restant, contenanceDe(vaisseau)) : restant);
 
   // Le champ part de 0, et non du besoin entier : pré-remplir la totalité
   // faisait réserver toute la mission au pilote qui validait sans lire, et
@@ -360,8 +362,7 @@ async function claimFlow(m, ctx) {
   const contenance = h('em.hint');
   const peindreContenance = () => {
     if (!vaisseau) return;
-    contenance.textContent =
-      t('claim.capacity', { v: num(holdUnits(vaisseau.hold, m.item_volume)) });
+    contenance.textContent = t('claim.capacity', { v: num(contenanceDe(vaisseau)) });
     champ.max = String(plafond());
   };
   peindreContenance();
@@ -406,10 +407,11 @@ async function claimFlow(m, ctx) {
 async function deliverFlow(m, ctx) {
   const mien = m.claimants?.find((c) => c.mine);
 
-  // La soute du vaisseau engagé plafonne la livraison. Elle manque sur un
-  // engagement antérieur au hangar, qui se livre alors sans plafond.
-  const soute = m.ship_hold ?? m.my_ship_hold ?? null;
-  const tenable = soute != null ? holdUnits(soute, m.item_volume) : null;
+  // Ce que le vaisseau engagé emporte de cette marchandise plafonne la
+  // livraison. Le serveur le calcule, volume réduit de sa classe compris.
+  // Il manque sur un engagement antérieur au hangar, qui se livre alors
+  // sans plafond.
+  const tenable = m.capacity ?? m.my_capacity ?? null;
   const propose = mien?.pledged || m.target_qty;
 
   const champ = input({ type: 'number', name: 'quantity', min: '0', step: '1',
@@ -803,6 +805,9 @@ export async function loopsView(ctx) {
     if (state.station) p.set('station', state.station);
     const vaisseau = duHangar();
     if (vaisseau) {
+      // L'identifiant suffit au serveur, qui lit soute, allure et classe
+      // sur le modèle ; cale et allure l'accompagnent par compatibilité.
+      p.set('shipId', vaisseau.id);
       p.set('cargo', vaisseau.hold);
       p.set('ship', vaisseau.shipClass);
     } else {

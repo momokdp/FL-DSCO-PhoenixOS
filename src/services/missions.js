@@ -1,6 +1,6 @@
 import { db, audit, nowSql, getSetting } from '../db/index.js';
 import { broadcast } from './events.js';
-import { shipForClaim, unitesTenables } from './hangar.js';
+import { shipForClaim, unitesTenables, volumeEnSoute, baremeDesSoutes } from './hangar.js';
 
 /**
  * Régénère les missions automatiques à partir des seuils min_stock.
@@ -146,6 +146,7 @@ export function listOpenMissions({ stationId = null, direction = null, userId = 
       m.reward_multiplier,
       st.id AS station_id, st.name AS station_name, st.code AS station_code,
       i.id AS item_id, i.name AS item_name, i.vendor_hint, i.volume AS item_volume,
+      i.commodity_id,
       COALESCE(v.effective_qty, 0) AS current_qty,
       COALESCE(v.min_stock, 0) AS min_stock,
       COALESCE(v.max_stock, 0) AS max_stock,
@@ -172,7 +173,11 @@ export function listOpenMissions({ stationId = null, direction = null, userId = 
       (SELECT sm.hold_size FROM mission_claims c
          JOIN pilot_ships ps ON ps.id = c.ship_id
          JOIN ship_models sm ON sm.nickname = ps.model_nick
-        WHERE c.mission_id = m.id AND c.status = 'in_progress' AND c.user_id = ?) AS my_ship_hold
+        WHERE c.mission_id = m.id AND c.status = 'in_progress' AND c.user_id = ?) AS my_ship_hold,
+      (SELECT sm.game_class FROM mission_claims c
+         JOIN pilot_ships ps ON ps.id = c.ship_id
+         JOIN ship_models sm ON sm.nickname = ps.model_nick
+        WHERE c.mission_id = m.id AND c.status = 'in_progress' AND c.user_id = ?) AS my_ship_class
     FROM missions m
     JOIN stations st ON st.id = m.station_id
     JOIN items    i  ON i.id  = m.item_id
@@ -187,7 +192,7 @@ export function listOpenMissions({ stationId = null, direction = null, userId = 
       m.auto,
       CASE m.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
       st.sort_order, i.name
-  `).all(userId, userId, stationId, stationId, direction, direction);
+  `).all(userId, userId, userId, stationId, stationId, direction, direction);
 
   const claimants = db.prepare(`
     SELECT c.mission_id, c.user_id, u.display_name, u.callsign, u.avatar, c.pledged_qty
@@ -206,13 +211,30 @@ export function listOpenMissions({ stationId = null, direction = null, userId = 
     });
   }
 
-  return rows.map(r => ({ ...r, claimants: byMission.get(r.id) || [] }));
+  // Le volume d'une marchandise en soute dépend de la classe du vaisseau.
+  // L'écran reçoit les dérogations de chaque mission pour borner la
+  // quantité selon le vaisseau choisi, et la contenance déjà calculée du
+  // vaisseau engagé. `item_volume`, lui, reste le volume de référence :
+  // c'est sur lui que se comptent les points.
+  const bareme = baremeDesSoutes();
+
+  return rows.map(({ commodity_id, my_ship_class, ...r }) => {
+    const derogations = bareme.get(commodity_id) || null;
+    return {
+      ...r,
+      hold_volumes: derogations,
+      my_capacity: r.my_ship_hold != null
+        ? unitesTenables(r.my_ship_hold, derogations?.[my_ship_class] ?? r.item_volume)
+        : null,
+      claimants: byMission.get(r.id) || [],
+    };
+  });
 }
 
 /** Un pilote s'engage sur une mission. Plusieurs pilotes peuvent coexister. */
 export function claimMission(missionId, userId, pledgedQty = 0, shipId = null) {
   const mission = db.prepare(`
-    SELECT m.*, i.volume AS item_volume
+    SELECT m.*, i.volume AS item_volume, i.commodity_id
     FROM missions m JOIN items i ON i.id = m.item_id
     WHERE m.id = ? AND m.status = 'open'
   `).get(missionId);
@@ -249,7 +271,10 @@ export function claimMission(missionId, userId, pledgedQty = 0, shipId = null) {
   const ship = choix.ship;
 
   if (ship) {
-    const tenable = unitesTenables(ship.hold, mission.item_volume);
+    // Le volume est celui que la marchandise occupe dans CE vaisseau : un
+    // vaisseau de minage prend le minerai à moitié volume.
+    const tenable = unitesTenables(ship.hold,
+      volumeEnSoute(mission.commodity_id, ship.gameClass, mission.item_volume));
     if (demande > tenable) {
       return {
         ok: false,
@@ -279,7 +304,8 @@ export const deliverClaim = db.transaction((claimId, userId, quantity, note = nu
            m.status AS mission_status,
            m.reward_multiplier, i.volume AS item_volume, i.name AS item_name,
            COALESCE(v.risk_bonus, 1) AS risk_bonus,
-           ps.name AS ship_name, sm.hold_size AS ship_hold
+           ps.name AS ship_name, sm.hold_size AS ship_hold,
+           COALESCE(hv.volume, i.volume) AS hold_volume
     FROM mission_claims c
     JOIN missions m ON m.id = c.mission_id
     JOIN items i    ON i.id = m.item_id
@@ -287,6 +313,8 @@ export const deliverClaim = db.transaction((claimId, userId, quantity, note = nu
            ON v.station_id = m.station_id AND v.item_id = m.item_id
     LEFT JOIN pilot_ships ps ON ps.id = c.ship_id
     LEFT JOIN ship_models sm ON sm.nickname = ps.model_nick
+    LEFT JOIN hold_volumes hv
+           ON hv.commodity_nick = i.commodity_id AND hv.game_class = sm.game_class
     WHERE c.id = ? AND c.status = 'in_progress'
   `).get(claimId);
 
@@ -307,8 +335,12 @@ export const deliverClaim = db.transaction((claimId, userId, quantity, note = nu
   // catalogue, et non figée à l'engagement : c'est la valeur du jeu au
   // moment du vol qui compte. Les engagements antérieurs au hangar n'ont
   // pas de vaisseau et passent sans plafond, le temps de s'écouler.
+  //
+  // Le volume retenu ici est celui de la marchandise dans ce vaisseau, qui
+  // peut être réduit pour sa classe. Les points, plus bas, restent comptés
+  // sur le volume de référence.
   if (claim.ship_hold != null) {
-    const tenable = unitesTenables(claim.ship_hold, claim.item_volume);
+    const tenable = unitesTenables(claim.ship_hold, claim.hold_volume);
     if (qty > tenable) {
       return {
         ok: false,
@@ -333,6 +365,10 @@ export const deliverClaim = db.transaction((claimId, userId, quantity, note = nu
   // deux cas le pilote a rempli sa cale et fait le même trajet, donc marque
   // autant. La valeur est figée maintenant : recalculer plus tard réécrirait
   // le classement des mois passés au moindre ajustement.
+  //
+  // C'est le volume de référence, le même pour tous les vaisseaux — pas le
+  // volume réduit dont profite une classe : une unité livrée vaut autant
+  // de points quel que soit le vaisseau qui l'apporte.
   const volume = Number(claim.item_volume) > 0 ? Number(claim.item_volume) : 1;
   const primeMission = Number(claim.reward_multiplier) > 0 ? Number(claim.reward_multiplier) : 1;
   // Deux primes se cumulent : celle attachée à la marchandise (danger
@@ -420,9 +456,10 @@ export function abandonClaim(claimId, actorId, { isOfficer = false, reason = nul
 
 /** Engagements en cours d'un pilote. */
 export function myClaims(userId) {
-  return db.prepare(`
+  const lignes = db.prepare(`
     SELECT c.id AS claim_id, c.pledged_qty, c.claimed_at,
            ps.name AS ship_name, sm.hold_size AS ship_hold,
+           COALESCE(hv.volume, i.volume) AS hold_volume,
            i.volume AS item_volume, m.reward_multiplier,
            COALESCE(v.risk_bonus, 1) AS risk_bonus,
       v.flow_mode AS flow_mode,
@@ -441,9 +478,18 @@ export function myClaims(userId) {
            ON v.station_id = m.station_id AND v.item_id = m.item_id
     LEFT JOIN pilot_ships ps ON ps.id = c.ship_id
     LEFT JOIN ship_models sm ON sm.nickname = ps.model_nick
+    LEFT JOIN hold_volumes hv
+           ON hv.commodity_nick = i.commodity_id AND hv.game_class = sm.game_class
     WHERE c.user_id = ? AND c.status = 'in_progress'
     ORDER BY c.claimed_at
   `).all(userId);
+
+  // La contenance du vaisseau engagé, calculée ici pour que l'écran borne
+  // la livraison par la même règle que `deliverClaim`.
+  return lignes.map(({ hold_volume, ...l }) => ({
+    ...l,
+    capacity: l.ship_hold != null ? unitesTenables(l.ship_hold, hold_volume) : null,
+  }));
 }
 
 /**
