@@ -406,7 +406,9 @@ adminRouter.post('/missions', officer, (req, res) => {
     broadcast('missions:changed', {});
     ok(res, { id: info.lastInsertRowid });
   } catch (e) {
-    fail(res, 409, 'Une mission ouverte existe déjà pour cette station et cette marchandise.');
+    // Seule une autre mission manuelle fait obstacle : la mission
+    // automatique de la même marchandise reste ouverte à côté.
+    fail(res, 409, 'Une mission manuelle est déjà ouverte pour cette station et cette marchandise. Archivez-la avant d\'en créer une autre.');
   }
 });
 
@@ -437,8 +439,9 @@ adminRouter.delete('/missions/:id', officer, (req, res) => {
   if (clos === null) return fail(res, 404, 'Mission introuvable ou déjà close.');
   audit(req.user.id, 'mission.archived', 'missions', Number(req.params.id), { claimsClosed: clos });
   broadcast('missions:changed', {});
-  // La mission manuelle faisait autorité : une fois archivée, le besoin
-  // automatique qu'elle masquait peut rouvrir.
+  // Archiver une mission automatique ne supprime pas le besoin : si le
+  // stock le justifie encore, elle rouvre aussitôt plutôt qu'au prochain
+  // relevé.
   refreshAutoMissions();
   ok(res);
 });

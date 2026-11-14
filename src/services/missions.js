@@ -113,20 +113,16 @@ export const refreshAutoMissions = db.transaction(() => {
   const upsert = db.prepare(`
     INSERT INTO missions (station_id, item_id, direction, target_qty, priority, status, auto)
     VALUES (@station_id, @item_id, @direction, @target_qty, @priority, 'open', 1)
-    ON CONFLICT(station_id, item_id, direction) WHERE status = 'open'
+    ON CONFLICT(station_id, item_id, direction, auto) WHERE status = 'open'
       DO UPDATE SET target_qty = excluded.target_qty, priority = excluded.priority
   `);
 
-  const dejaManuelle = db.prepare(`
-    SELECT 1 FROM missions
-    WHERE station_id = ? AND item_id = ? AND direction = ? AND status = 'open' AND auto = 0
-  `);
-
+  // Une mission ouverte à la main sur la même marchandise ne suspend pas
+  // l'automatique : c'est une commande exceptionnelle, avec sa quantité et
+  // sa prime, posée à côté du réapprovisionnement courant. Ce qui y est
+  // livré entre dans le stock, donc réduit de lui-même l'objectif d'ici.
   let created = 0;
   for (const d of besoins) {
-    // Une mission ouverte à la main fait autorité : on ne la double pas.
-    if (dejaManuelle.get(d.station_id, d.item_id, d.direction)) continue;
-
     upsert.run({
       station_id: d.station_id,
       item_id: d.item_id,
@@ -754,8 +750,8 @@ export const cancelDelivery = db.transaction((claimId, actorId, { isOfficer = fa
   // Une mission créée à la main, elle, n'est régénérée par personne : si
   // c'est cette livraison qui l'avait terminée, elle doit rouvrir, sans quoi
   // un officier devrait la ressaisir. On la laisse close si une autre mission
-  // ouverte a pris sa place entre-temps : l'index n'en admet qu'une par
-  // station, marchandise et sens.
+  // manuelle a pris sa place entre-temps : l'index n'en admet qu'une par
+  // station, marchandise et sens. La mission automatique, elle, ne gêne pas.
   db.prepare(`
     UPDATE missions SET status = 'open', closed_at = NULL
     WHERE id = ? AND auto = 0 AND status = 'fulfilled'
@@ -765,7 +761,8 @@ export const cancelDelivery = db.transaction((claimId, actorId, { isOfficer = fa
       AND NOT EXISTS (
         SELECT 1 FROM missions o
         WHERE o.station_id = missions.station_id AND o.item_id = missions.item_id
-          AND o.direction = missions.direction AND o.status = 'open')
+          AND o.direction = missions.direction AND o.status = 'open'
+          AND o.auto = 0)
   `).run(claim.mission_id);
 
   return { ok: true, restored: claim.delivered_qty };

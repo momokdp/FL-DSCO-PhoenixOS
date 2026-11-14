@@ -75,7 +75,7 @@ export function pointsSegment({ openQty, volume, multiplier }, cale) {
  *    cours déduits.
  */
 function missionsExploitables() {
-  return db.prepare(`
+  const ouvertes = db.prepare(`
     SELECT
       m.id AS mission_id, m.station_id, m.direction, m.target_qty,
       m.reward_multiplier,
@@ -101,6 +101,21 @@ function missionsExploitables() {
       AND i.commodity_id IS NOT NULL AND i.commodity_id <> ''
       AND st.api_nickname IS NOT NULL AND st.api_nickname <> ''
   `).all().filter((m) => m.open_qty > 0);
+
+  // Une mission manuelle peut doubler l'automatique sur la même marchandise.
+  // Un circuit se décrit par ses marchandises et ses bases : les deux
+  // missions y donneraient deux fois le même, pour un seul retenu. On garde
+  // celle qui paie le mieux, et à prime égale celle qui a le plus à couvrir.
+  const retenues = new Map();
+  for (const m of ouvertes) {
+    const cle = `${m.station_id}:${m.item_id}:${m.direction}`;
+    const autre = retenues.get(cle);
+    const mieux = !autre
+      || m.reward_multiplier > autre.reward_multiplier
+      || (m.reward_multiplier === autre.reward_multiplier && m.open_qty > autre.open_qty);
+    if (mieux) retenues.set(cle, m);
+  }
+  return [...retenues.values()];
 }
 
 /* ------------------------------------------------------------- calcul */
