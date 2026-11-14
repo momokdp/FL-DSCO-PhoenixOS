@@ -17,8 +17,10 @@ paramètre depuis l'interface.
   ne bloque la mission pour les autres.
 - **Stock effectif en direct** : une livraison est visible immédiatement, avant même
   que l'API l'ait confirmée.
-- **Armurerie** : recettes de fabrication avec le stock de chaque composant, station
-  par station, et ce qu'il reste à couvrir.
+- **Arsenal** : toutes les recettes de fabrication du jeu, relevées sur darkstat,
+  face au stock de chaque station ; les modules posés sur chaque base ; et une
+  file de production par client qui dit ce qui est prêt à lancer, ce qu'il faut
+  transférer d'une base à l'autre et ce qu'il reste à importer.
 - **Boucles de trade** : des circuits complets — charger chez un vendeur, livrer
   chez nous, recharger ce que nous produisons, revendre, revenir — classés au
   temps de vol réel et mis à l'échelle de la cale du pilote.
@@ -27,8 +29,8 @@ paramètre depuis l'interface.
   plafonne ce qu'un voyage peut livrer.
 - **Répartition des gains** : le pourcentage de participation de chaque pilote,
   en camembert, et ce qu'il touchera à la fin du mois sur les fonds des stations.
-- **Gestion complète** depuis le site : stations, marchandises, routes, recettes,
-  missions, rôles des pilotes.
+- **Gestion complète** depuis le site : stations, marchandises, routes, missions,
+  rôles des pilotes.
 
 ### Le principe à retenir
 
@@ -240,12 +242,14 @@ cd /root/kadesh && git pull && sudo bash install/install-debian.sh
    renvoyé par darkstat, par exemple `Kadesh Orbital City`. C'est la cause
    numéro un de soute qui reste vide.
 3. **Gestion → Synchronisation → Lancer un relevé.** Marchandises et stocks se
-   créent tout seuls. Missions, routes et recettes choisissent ensuite leur
+   créent tout seuls. Missions et routes choisissent ensuite leur
    marchandise dans cette liste : rien ne se saisit à la main, pour que le nom
    corresponde toujours à celui de l'API. Une marchandise que darkstat ne sert
    pas encore s'ajoute par **Gestion → Marchandises**.
 4. Les missions s'ouvrent automatiquement pour tout ce qui passe sous le seuil bas.
-5. **Gestion → Recettes → Importer depuis Discovery** pour peupler l'armurerie.
+5. **Arsenal → Stations → Régler les modules** : cochez les usines construites
+   sur chaque base. darkstat ne les publie pas ; sans elles, la console ne sait
+   pas où une recette peut se lancer. Les recettes, elles, se relèvent seules.
 6. **Gestion → Pilotes** : donnez le rôle *officier* à ceux qui doivent gérer
    stations et missions.
 
@@ -253,9 +257,9 @@ cd /root/kadesh && git pull && sudo bash install/install-debian.sh
 
 | Rôle | Peut faire |
 |---|---|
-| **Pilote** | Consulter, prendre des missions, déclarer ses livraisons |
-| **Officier** | Idem, plus stations, marchandises, routes, recettes, missions, runs des pilotes, relevés |
-| **Administrateur** | Idem, plus les rôles des pilotes, les suppressions et l'import de recettes |
+| **Pilote** | Consulter, prendre des missions, déclarer ses livraisons, saisir une commande à l'arsenal et gérer les siennes |
+| **Officier** | Idem, plus stations, marchandises, routes, missions, runs des pilotes, relevés, modules des bases et toutes les commandes de l'arsenal |
+| **Administrateur** | Idem, plus les rôles des pilotes et les suppressions |
 
 La console refuse de retirer son rôle au dernier administrateur actif.
 
@@ -439,12 +443,13 @@ src/
     loops.js             assemblage des circuits
     paths.js             temps de vol darkstat, groupés et mis en cache
     ships.js             catalogue des vaisseaux, relevé une fois par jour
+    recipes.js           recettes de fabrication, relevées une fois par jour
   services/
     stock.js             lecture des soutes
     missions.js          ouverture auto, prise, livraison, classement
     loops.js             circuits mis à l'échelle du vaisseau du pilote
     hangar.js            vaisseaux des pilotes, soute lue sur le catalogue
-    recipeImport.js      import du fichier de recettes Discovery
+    production.js        arsenal : recettes, modules, commandes
     events.js            diffusion temps réel
   routes/
     api.js               lecture, réservé aux pilotes connectés
@@ -456,6 +461,8 @@ public/
     ui.js                requêtes, modales, notifications, jauge
     views.js             vues pilote
     admin.js             console de gestion
+    production.js        arsenal : commandes, besoins, recettes, stations
+    production-calc.js   calcul des besoins, sans DOM
     refresh.js           cadence de rafraîchissement, réglée par le pilote
     app.js               routage et flux temps réel
 ```

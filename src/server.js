@@ -14,6 +14,7 @@ import { adminRouter } from './routes/admin.js';
 import { startSyncWorker, stopSyncWorker } from './sync/darkstat.js';
 import { startAnalyseWorker, stopAnalyseWorker } from './sync/analyse.js';
 import { startShipsWorker, stopShipsWorker } from './sync/ships.js';
+import { startRecipesWorker, stopRecipesWorker } from './sync/recipes.js';
 import { refreshAutoMissions } from './services/missions.js';
 
 // Le serveur ne démarre pas sur une base dont le schéma n'est pas à jour :
@@ -119,6 +120,7 @@ const server = app.listen(config.port, config.host, () => {
   startSyncWorker();
   startAnalyseWorker();
   startShipsWorker();
+  startRecipesWorker();
   setInterval(() => { try { refreshAutoMissions(); } catch (e) { console.error('[missions]', e.message); } }, 120_000);
 });
 
@@ -128,6 +130,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
     stopSyncWorker();
     stopAnalyseWorker();
     stopShipsWorker();
+    stopRecipesWorker();
     server.close(() => { db.close(); process.exit(0); });
     setTimeout(() => process.exit(1), 5000);
   });

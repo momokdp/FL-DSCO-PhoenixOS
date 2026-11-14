@@ -5,7 +5,8 @@ import { syncNow, isSyncRunning } from '../sync/darkstat.js';
 import { analyserRoutes } from '../sync/routes.js';
 import { analyserMarche } from '../sync/analyse.js';
 import { broadcast } from '../services/events.js';
-import { importRecipesFromConfig } from '../services/recipeImport.js';
+import { setStationModules } from '../services/production.js';
+import { syncRecipes } from '../sync/recipes.js';
 import { config } from '../config.js';
 import { setThreshold, listThresholds, stationInventory } from '../services/stock.js';
 import {
@@ -281,103 +282,24 @@ adminRouter.delete('/routes/:id', officer, (req, res) => {
 });
 
 // ===================================================================
-// Recettes
+// Arsenal : modules des stations et relevé des recettes
 // ===================================================================
-adminRouter.get('/recipes', officer, (req, res) => {
-  const recipes = db.prepare(`SELECT * FROM recipes ORDER BY name`).all();
-  const comps = db.prepare(`
-    SELECT rc.recipe_id, rc.quantity, i.id AS item_id, i.name
-    FROM recipe_components rc JOIN items i ON i.id = rc.item_id ORDER BY i.name
-  `).all();
-  const byRecipe = new Map();
-  for (const c of comps) {
-    if (!byRecipe.has(c.recipe_id)) byRecipe.set(c.recipe_id, []);
-    byRecipe.get(c.recipe_id).push(c);
-  }
-  res.json(recipes.map(r => ({ ...r, components: byRecipe.get(r.id) || [] })));
+
+/** darkstat ne publie pas les modules d'une base : un officier les déclare. */
+adminRouter.put('/stations/:id/modules', officer, (req, res) => {
+  const result = setStationModules(req.user, Number(req.params.id), req.body?.modules);
+  if (!result.ok) return fail(res, result.code || 400, result.error);
+  broadcast('production:changed', {});
+  ok(res, { modules: result.modules });
 });
 
-const saveRecipe = db.transaction((payload, userId, existingId = null) => {
-  const { name, category, station_id, notes, components } = payload;
-  let id = existingId;
-
-  if (id) {
-    db.prepare(`UPDATE recipes SET name=?, category=?, station_id=?, notes=? WHERE id=?`)
-      .run(str(name), str(category) || 'weapon', num(station_id), str(notes), id);
-    db.prepare('DELETE FROM recipe_components WHERE recipe_id = ?').run(id);
-  } else {
-    id = db.prepare(`INSERT INTO recipes (name, category, station_id, notes) VALUES (?, ?, ?, ?)`)
-      .run(str(name), str(category) || 'weapon', num(station_id), str(notes)).lastInsertRowid;
-  }
-
-  const insert = db.prepare(`
-    INSERT INTO recipe_components (recipe_id, item_id, quantity) VALUES (?, ?, ?)
-    ON CONFLICT(recipe_id, item_id) DO UPDATE SET quantity = excluded.quantity
-  `);
-  for (const c of components || []) {
-    const item = itemConnu({ item_id: c.item_id, item_name: c.name });
-    const qty = Number(c.quantity) || 0;
-    if (item.id && qty > 0) insert.run(id, item.id, qty);
-  }
-
-  audit(userId, existingId ? 'recipe.updated' : 'recipe.created', 'recipes', id, { name });
-  return id;
-});
-
-/**
- * Composants dont la marchandise n'existe pas.
- *
- * Contrôlés avant l'enregistrement plutôt qu'ignorés au passage : une
- * recette amputée d'un composant s'affiche comme réalisable alors qu'il
- * manque un bien, et rien n'aurait signalé la faute de frappe.
- */
-function composantsInconnus(components) {
-  return (components || [])
-    .filter((c) => (Number(c.quantity) || 0) > 0)
-    .filter((c) => itemConnu({ item_id: c.item_id, item_name: c.name }).error)
-    .map((c) => str(c.name) || `#${c.item_id}`);
-}
-
-adminRouter.post('/recipes', officer, (req, res) => {
-  if (!req.body?.name) return fail(res, 400, 'Donnez un nom à la recette.');
-  const inconnus = composantsInconnus(req.body?.components);
-  if (inconnus.length) return fail(res, 400, nomInconnu(inconnus.join(', ')));
-  try {
-    ok(res, { id: saveRecipe(req.body, req.user.id) });
-  } catch (e) {
-    fail(res, 409, 'Une recette porte déjà ce nom.');
-  }
-});
-
-adminRouter.put('/recipes/:id', officer, (req, res) => {
-  const existing = db.prepare('SELECT id FROM recipes WHERE id = ?').get(req.params.id);
-  if (!existing) return fail(res, 404, 'Recette inconnue.');
-  const inconnus = composantsInconnus(req.body?.components);
-  if (inconnus.length) return fail(res, 400, nomInconnu(inconnus.join(', ')));
-  try {
-    saveRecipe(req.body, req.user.id, existing.id);
-    ok(res);
-  } catch (e) {
-    fail(res, 409, 'Une recette porte déjà ce nom.');
-  }
-});
-
-adminRouter.delete('/recipes/:id', officer, (req, res) => {
-  const info = db.prepare('DELETE FROM recipes WHERE id = ?').run(req.params.id);
-  if (!info.changes) return fail(res, 404, 'Recette inconnue.');
-  audit(req.user.id, 'recipe.deleted', 'recipes', Number(req.params.id));
-  ok(res);
-});
-
-/** Importe les recettes depuis le .cfg public de Discovery. */
-adminRouter.post('/recipes/import', admin, async (req, res) => {
-  try {
-    const result = await importRecipesFromConfig({ replace: !!req.body?.replace });
-    audit(req.user.id, 'recipe.imported', null, null, result);
-    ok(res, result);
-  } catch (e) {
-    fail(res, 502, `Import impossible : ${e.message}`);
-  }
+/** Relit les recettes sur darkstat sans attendre le relevé quotidien. */
+adminRouter.post('/production/sync', officer, async (req, res) => {
+  const result = await syncRecipes();
+  if (result.skipped) return fail(res, 409, result.reason);
+  if (!result.ok) return fail(res, 502, `Relevé des recettes impossible : ${result.error}`);
+  audit(req.user.id, 'production.recipes.synced', null, null, { recettes: result.recettes });
+  ok(res, { recipes: result.recettes });
 });
 
 // ===================================================================
@@ -569,7 +491,6 @@ adminRouter.get('/settings', admin, (req, res) => {
     runtime: {
       darkstatUrl: config.darkstat.baseUrl + config.darkstat.pobsPath,
       syncIntervalMinutes: config.darkstat.intervalMs / 60000,
-      recipeSourceUrl: config.recipeSourceUrl,
     },
   });
 });

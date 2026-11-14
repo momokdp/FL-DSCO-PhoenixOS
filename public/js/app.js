@@ -4,7 +4,8 @@
 
 import { h, get, ago, clear, toast, loading, empty } from './ui.js';
 import { t, lang, setLang, languages } from './i18n.js';
-import { missionsView, mineView, stationsView, recipesView, routesView, loopsView, boardView } from './views.js';
+import { missionsView, mineView, stationsView, routesView, loopsView, boardView } from './views.js';
+import { productionView } from './production.js';
 import { adminView } from './admin.js';
 import { hangarView } from './hangar.js';
 import { startAutoRefresh } from './refresh.js';
@@ -13,7 +14,7 @@ const ROUTES = {
   missions: { view: missionsView, key: 'nav.missions' },
   mine: { view: mineView, key: 'nav.mine' },
   stations: { view: stationsView, key: 'nav.stations' },
-  recipes: { view: recipesView, key: 'nav.recipes' },
+  production: { view: productionView, key: 'nav.production' },
   routes: { view: routesView, key: 'nav.routes' },
   loops: { view: loopsView, key: 'nav.loops' },
   board: { view: boardView, key: 'nav.board' },
@@ -30,7 +31,13 @@ const ctx = {
 };
 
 const stage = () => document.getElementById('stage');
-const current = () => (location.hash.replace(/^#\/?/, '') || 'missions').split('?')[0];
+// « recipes » était l'adresse de l'ancienne armurerie : les favoris des
+// pilotes doivent continuer d'arriver au bon endroit.
+const ALIAS = { recipes: 'production' };
+const current = () => {
+  const route = (location.hash.replace(/^#\/?/, '') || 'missions').split('?')[0];
+  return ALIAS[route] || route;
+};
 
 /* ------------------------------------------------------------- amorçage */
 
@@ -246,6 +253,8 @@ function connectStream() {
   source.addEventListener('loops:changed', touch(['loops']));
   source.addEventListener('stations:changed', touch(['stations', 'admin']));
   source.addEventListener('routes:changed', touch(['routes']));
+  // Commandes, lancements et modules : l'arsenal se lit à plusieurs.
+  source.addEventListener('production:changed', touch(['production']));
 
   // Le serveur annonce « stock:updated » — c'est le nom émis par le relevé
   // darkstat comme par les corrections d'officier. L'interface guettait
@@ -255,7 +264,7 @@ function connectStream() {
   // revenu estimé de chaque pilote, bouge à chaque synchronisation.
   source.addEventListener('stock:updated', () => {
     refreshSync();
-    touch(['stations', 'missions', 'recipes', 'admin', 'board'])();
+    touch(['stations', 'missions', 'production', 'admin', 'board'])();
   });
 
   // Un relevé en échec doit se voir dans l'en-tête sans attendre le suivant.
@@ -274,7 +283,7 @@ function connectStream() {
 document.addEventListener('keydown', (e) => {
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
-  const keys = { m: 'missions', e: 'mine', s: 'stations', a: 'recipes', r: 'routes', b: 'loops', c: 'board', h: 'hangar' };
+  const keys = { m: 'missions', e: 'mine', s: 'stations', a: 'production', r: 'routes', b: 'loops', c: 'board', h: 'hangar' };
   const target = keys[e.key.toLowerCase()];
   if (target) location.hash = `#/${target}`;
 });
