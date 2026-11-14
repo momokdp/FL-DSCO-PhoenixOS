@@ -11,6 +11,10 @@ import { listLoops } from '../services/loops.js';
 import {
   listShips, listModels, addShip, updateShip, activateShip, retireShip,
 } from '../services/hangar.js';
+import {
+  overview, createOrder, updateOrder, deleteOrder, setOrderDelivered,
+  addLine, updateLine, deleteLine, setLineStatus,
+} from '../services/production.js';
 
 export const apiRouter = express.Router();
 
@@ -73,45 +77,58 @@ apiRouter.post('/claims/:id/abandon', requireAuth, (req, res) => {
   res.status(result.ok ? 200 : 409).json(result);
 });
 
-// ---------------------------------------------------------------- recettes
-apiRouter.get('/recipes', requireAuth, (req, res) => {
-  const recipes = db.prepare(`
-    SELECT r.id, r.name, r.category, r.notes, st.name AS station_name
-    FROM recipes r LEFT JOIN stations st ON st.id = r.station_id
-    WHERE r.active = 1 ORDER BY r.category, r.name
-  `).all();
+// ---------------------------------------------------------------- arsenal
+//
+// Un seul appel de lecture : recettes, modules, stocks et commandes se
+// lisent ensemble, et c'est le navigateur qui calcule ce qui manque.
+// Tout pilote peut saisir une commande ; il ne modifie que les siennes,
+// un officier les modifie toutes — la règle est tenue par le service.
 
-  const components = db.prepare(`
-    SELECT rc.recipe_id, rc.quantity, i.id AS item_id, i.name, i.vendor_hint
-    FROM recipe_components rc JOIN items i ON i.id = rc.item_id
-    ORDER BY i.name
-  `).all();
+const produire = (res, result) => {
+  if (result.ok) broadcast('production:changed', {});
+  res.status(result.ok ? 200 : (result.code || 400)).json(
+    result.ok ? result : { ok: false, error: result.error });
+};
 
-  const stations = listStations();
-  const stockRows = db.prepare(`
-    SELECT station_id, item_id, effective_qty FROM v_effective_stock
-  `).all();
+apiRouter.get('/production', requireAuth, (req, res) => {
+  res.json(overview(req.user));
+});
 
-  const stock = new Map(stockRows.map(s => [`${s.station_id}:${s.item_id}`, s.effective_qty]));
-  const byRecipe = new Map();
+apiRouter.post('/production/orders', requireAuth, (req, res) => {
+  produire(res, createOrder(req.user, req.body || {}));
+});
 
-  for (const c of components) {
-    if (!byRecipe.has(c.recipe_id)) byRecipe.set(c.recipe_id, []);
-    byRecipe.get(c.recipe_id).push({
-      itemId: c.item_id,
-      name: c.name,
-      quantity: c.quantity,
-      vendorHint: c.vendor_hint,
-      stocks: Object.fromEntries(
-        stations.map(st => [st.code, stock.get(`${st.id}:${c.item_id}`) ?? 0])
-      ),
-    });
-  }
+apiRouter.put('/production/orders/:id', requireAuth, (req, res) => {
+  produire(res, updateOrder(req.user, Number(req.params.id), req.body || {}));
+});
 
-  res.json({
-    stations: stations.map(s => ({ id: s.id, code: s.code, name: s.name })),
-    recipes: recipes.map(r => ({ ...r, components: byRecipe.get(r.id) || [] })),
-  });
+apiRouter.delete('/production/orders/:id', requireAuth, (req, res) => {
+  produire(res, deleteOrder(req.user, Number(req.params.id)));
+});
+
+apiRouter.post('/production/orders/:id/deliver', requireAuth, (req, res) => {
+  produire(res, setOrderDelivered(req.user, Number(req.params.id), true));
+});
+
+apiRouter.post('/production/orders/:id/reopen', requireAuth, (req, res) => {
+  produire(res, setOrderDelivered(req.user, Number(req.params.id), false));
+});
+
+apiRouter.post('/production/orders/:id/lines', requireAuth, (req, res) => {
+  produire(res, addLine(req.user, Number(req.params.id), req.body || {}));
+});
+
+apiRouter.put('/production/lines/:id', requireAuth, (req, res) => {
+  produire(res, updateLine(req.user, Number(req.params.id), req.body || {}));
+});
+
+apiRouter.delete('/production/lines/:id', requireAuth, (req, res) => {
+  produire(res, deleteLine(req.user, Number(req.params.id)));
+});
+
+apiRouter.post('/production/lines/:id/status', requireAuth, (req, res) => {
+  produire(res, setLineStatus(req.user, Number(req.params.id), req.body?.status,
+    { stationId: req.body?.stationId }));
 });
 
 // ---------------------------------------------------------------- routes

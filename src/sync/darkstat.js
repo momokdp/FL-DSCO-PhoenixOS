@@ -224,6 +224,16 @@ function writeSnapshots(pobs, stamp = nowSql()) {
   const purgerAbsentes = db.prepare(
     'DELETE FROM stock_snapshots WHERE station_id = ? AND synced_at <> ?');
 
+  // Affiliation et niveau du noyau : l'arsenal en tire les bonus de
+  // matériaux et les recettes accessibles. Tenus alignés sur l'API ; une
+  // fiche qui ne les renseigne pas ne les efface pas.
+  const majAffiliation = db.prepare(`
+    UPDATE stations SET
+      faction_nick = COALESCE(?, faction_nick),
+      faction_name = COALESCE(?, faction_name),
+      core_level   = COALESCE(?, core_level)
+    WHERE id = ?`);
+
   const missing = [];   // station déclarée, aucune base correspondante
   const vides = [];     // base trouvée, mais sans aucune marchandise
   let stationsSeen = 0, rowsWritten = 0;
@@ -250,6 +260,13 @@ function writeSnapshots(pobs, stamp = nowSql()) {
 
       const nick = String(pob.nickname || '').trim();
       if (nick) majNickname.run(nick, station.id, nick);
+
+      const niveau = Number(pob.level);
+      majAffiliation.run(
+        String(pob.faction_nickname || '').trim() || null,
+        String(pob.faction_name || '').trim() || null,
+        Number.isInteger(niveau) && niveau > 0 ? niveau : null,
+        station.id);
 
       const shopItems = extraireMarchandises(pob);
       if (!shopItems.length) vides.push(station.api_name);

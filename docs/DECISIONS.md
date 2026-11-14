@@ -344,3 +344,43 @@ Deux volumes cohabitent désormais, et ne se mélangent pas :
 Le barème vient de darkstat, relevé une fois par jour avec le catalogue des
 vaisseaux. Rien n'est saisi à la main : une mise à jour du jeu qui change
 une dérogation vaut au relevé suivant.
+
+## L'arsenal lit darkstat, et ne devine pas les modules
+
+L'armurerie d'origine importait le `.cfg` public de Discovery, que le site
+ne sert plus aux robots : elle est restée vide. darkstat recopie les mêmes
+recettes dans ses infocards (voir `API-DARKSTAT.md`). L'arsenal les relève
+là, une fois par jour, et l'import du `.cfg` est retiré. Les tables
+`recipes` et `recipe_components` restent en base sans être lues : des
+recettes saisies à la main peuvent y dormir.
+
+**Les modules se déclarent.** darkstat ne dit pas quelle usine est
+construite sur quelle base. Un officier les coche, parmi les noms d'usine
+que portent les recettes — pas de saisie libre, un module mal orthographié
+ne fabriquerait jamais rien. Une station sans aucun module déclaré n'est
+pas tenue pour incapable : elle n'est simplement pas encore renseignée.
+
+**Le calcul se fait dans le navigateur.** Le serveur sert recettes, stocks
+et commandes en un appel ; `production-calc.js` déroule la file. Le
+brouillon d'une commande répond ainsi à chaque chiffre tapé, sans
+aller-retour, et le module, sans DOM, s'éprouve seul sous Node.
+
+**La file se sert dans l'ordre de saisie.** La commande la plus ancienne
+prend ce qu'il lui faut, la suivante ce qui reste : deux commandes ne se
+croient pas servies par les mêmes caisses. Pour chaque marchandise, trois
+réponses et pas deux — *sur place*, *dans une autre de nos bases* (à
+transférer), *nulle part* (à importer).
+
+**Une fabrication lancée ne réclame plus rien.** La base a prélevé ses
+matériaux, et le relevé suivant le montre dans les stocks : les compter
+encore doublerait le besoin. L'avancement affiché est une estimation — la
+durée de la recette depuis le clic sur « Lancer » ; darkstat ne publie pas
+l'état des usines.
+
+**Deux suppositions sur le jeu, à corriger si elles sont fausses :** une
+quantité réduite par un bonus d'affiliation s'arrondit à l'unité
+supérieure, et le bonus ne raccourcit pas la durée.
+
+Tout pilote saisit une commande et gère les siennes ; un officier les gère
+toutes. Une commande n'engage ni stock ni points : la fermer aux pilotes
+n'aurait protégé rien.

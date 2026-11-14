@@ -64,6 +64,10 @@ export const config = {
     commoditiesPath: '/api/commodities',
     shipsIntervalMs: Number(process.env.SHIPS_INTERVAL_HOURS || 24) * 60 * 60 * 1000,
 
+    // Les recettes de fabrication ne changent, elles aussi, qu'aux mises à
+    // jour du jeu.
+    recipesIntervalMs: Number(process.env.RECIPES_INTERVAL_HOURS || 24) * 60 * 60 * 1000,
+
     // /api/graph/paths accepte un tableau de couples : 400 couples reviennent
     // en une fraction de seconde. Interroger couple par couple rendrait la
     // mesure du temps de trajet trop chère pour servir au classement.
@@ -96,8 +100,4 @@ export const config = {
     // et le pilote ne choisit plus.
     parStation: Number(process.env.LOOPS_PER_STATION || 12),
   },
-
-  // Fichier de recettes Discovery, importable depuis l'administration
-  recipeSourceUrl: process.env.RECIPE_SOURCE_URL
-    || 'https://discoverygc.com/gameconfigpublic/base_recipe_items.cfg',
 };

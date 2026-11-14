@@ -17,7 +17,6 @@ const TABS = [
   { key: 'runs', label: t('adm.tab.runs'), role: 'officer' },
   { key: 'items', label: t('adm.tab.items'), role: 'officer' },
   { key: 'routes', label: t('adm.tab.routes'), role: 'officer' },
-  { key: 'recipes', label: t('adm.tab.recipes'), role: 'officer' },
   { key: 'users', label: t('adm.tab.users'), role: 'admin' },
   { key: 'sync', label: t('adm.tab.sync'), role: 'officer' },
 ];
@@ -688,122 +687,6 @@ async function routesPane(ctx) {
   );
 }
 
-/* ============================================================ recettes */
-
-async function recipesPane(ctx) {
-  const [recipes, stations, items] = await Promise.all([
-    get('/admin/recipes'), get('/stations'), listeMarchandises(),
-  ]);
-
-  const edit = async (recipe = null) => {
-    if (refuserSansMarchandise(items)) return;
-    const rows = h('div.comp-rows');
-    // Un composant enregistré avant que sa marchandise ne disparaisse
-    // n'est plus dans la liste : le menu retombe alors sur le choix vide
-    // plutôt que d'inventer une option, et la ligne se resaisit.
-    const addRow = (comp = null) => rows.appendChild(h('div.comp-row',
-      itemSelect(items, { name: null, class: 'comp-item', value: comp?.item_id ?? '' }),
-      input({ type: 'number', class: 'input--num comp-qty', placeholder: t('adm.rc.qty'), min: '1', value: comp?.quantity || '' }),
-      h('button.btn.btn--ghost.btn--sm', { type: 'button', onClick: (e) => e.target.parentElement.remove() }, '×'),
-    ));
-
-    for (const c of recipe?.components || []) addRow(c);
-    if (!recipe?.components?.length) addRow();
-
-    let form;
-    const values = await modal({
-      title: recipe ? t('adm.rc.edit') : t('adm.rc.create'),
-      width: '640px',
-      build: () => (form = h('div.form',
-        field(t('adm.rc.name'), input({ name: 'name', value: recipe?.name || '' })),
-        field(t('adm.col.category'), input({ name: 'category', value: recipe?.category || 'weapon' })),
-        field(t('adm.rc.madeAt'),
-          select([{ value: '', label: t('adm.rc.anywhere') },
-            ...stations.map((s) => ({ value: s.id, label: s.name }))],
-          { name: 'station_id', value: recipe?.station_id ?? '' })),
-        field(t('adm.rc.notes'), input({ name: 'notes', value: recipe?.notes || '' })),
-        h('div.field', h('span', t('adm.col.components')), rows,
-          h('button.btn.btn--ghost.btn--sm', { type: 'button', onClick: () => addRow() }, t('adm.rc.addComponent'))),
-      )),
-      actions: [
-        { label: t('common.cancel'), value: null },
-        { label: t('common.save'), variant: 'primary', onClick: (close) => {
-          const base = readForm(form);
-          const saisies = [...rows.querySelectorAll('.comp-row')].map((r) => ({
-            item_id: Number(r.querySelector('.comp-item').value) || 0,
-            quantity: Number(r.querySelector('.comp-qty').value) || 0,
-          }));
-          // Une ligne chiffrée mais sans marchandise part d'un menu resté
-          // sur le choix vide : l'écarter en silence amputerait la recette.
-          if (saisies.some((c) => c.quantity > 0 && !c.item_id)) {
-            return toast(t('adm.rc.orphan'), 'err');
-          }
-          base.components = saisies.filter((c) => c.item_id && c.quantity > 0);
-          close(base);
-        } },
-      ],
-    });
-
-    if (!values) return;
-    if (!values.name) return toast(t('adm.rc.nameRequired'), 'err');
-    try {
-      if (recipe) await put(`/admin/recipes/${recipe.id}`, values);
-      else await post('/admin/recipes', values);
-      toast(t('adm.rc.saved'));
-      ctx.reload();
-    } catch (e) { notifyError(e); }
-  };
-
-  const remove = async (r) => {
-    if (!await confirmDialog(t('adm.rc.delete'), t('adm.rc.deleteBody', { name: r.name }), t('common.delete'))) return;
-    try { await del(`/admin/recipes/${r.id}`); toast(t('adm.rc.deleted')); ctx.reload(); }
-    catch (e) { notifyError(e); }
-  };
-
-  const runImport = async () => {
-    const replace = await modal({
-      title: t('adm.rc.import'),
-      build: () => h('div',
-        h('p', { style: 'margin-top:0' }, t('adm.rc.importBody')),
-        h('p.hint', { style: 'margin:0' }, t('adm.rc.importHint')),
-      ),
-      actions: [
-        { label: t('common.cancel'), value: null },
-        { label: t('adm.rc.keep'), variant: 'primary', value: false },
-        { label: t('adm.rc.replace'), variant: 'danger', value: true },
-      ],
-    });
-    if (replace == null) return;
-    toast(t('adm.rc.importing'));
-    try {
-      const r = await post('/admin/recipes/import', { replace });
-      toast(t('adm.rc.imported', { n: num(r.recipes ?? 0) }));
-      ctx.reload();
-    } catch (e) { notifyError(e); }
-  };
-
-  return panel(t('adm.tab.recipes'), {
-    count: recipes.length, flush: true,
-    tools: h('span', { style: 'display:flex;gap:.5rem' },
-      ctx.user.role === 'admin'
-        ? h('button.btn.btn--ghost.btn--sm', { type: 'button', onClick: runImport }, t('adm.rc.import'))
-        : null,
-      addButton(t('adm.rc.createShort'), () => edit())),
-  },
-  recipes.length
-    ? table([{ label: t('adm.col.weapon') }, { label: t('adm.col.category') }, { label: t('adm.col.components'), num: true }, { label: '' }],
-      recipes,
-      (r) => h('tr',
-        h('td', h('strong', r.name)),
-        h('td', r.category),
-        h('td', { class: 'num' }, num(r.components.length)),
-        rowActions(editBtn(() => edit(r)), deleteBtn(() => remove(r))),
-      ))
-    : empty(t('recipes.empty'), t('adm.rc.emptyHint'),
-      addButton(t('adm.rc.create'), () => edit())),
-  );
-}
-
 /* ============================================================= pilotes */
 
 async function usersPane(ctx) {
@@ -914,7 +797,6 @@ const PANES = {
   runs: runsPane,
   items: itemsPane,
   routes: routesPane,
-  recipes: recipesPane,
   users: usersPane,
   sync: syncPane,
 };

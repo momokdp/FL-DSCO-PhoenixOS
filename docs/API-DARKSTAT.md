@@ -216,10 +216,98 @@ print(json.dumps(d['definitions']['appdata.GraphPathReq'], indent=2))"
 
 ---
 
+## Recettes de fabrication — `/api/npc_bases` puis `/api/infocards`  (POST)
+
+Il n'existe pas de point d'entrée « recettes ». Elles se lisent en deux
+appels, mesurés le 2026-11-14 : 220 ko puis 2,1 Mo, pour 263 recettes.
+
+**1. La base fictive `crafts`.** darkstat range tout ce qui se fabrique sur
+une base joueur comme marchandises d'une base nommée « PoB crafts » :
+
+```json
+POST /api/npc_bases
+{ "filter_nicknames": ["crafts"], "include_market_goods": true, "filter_to_useful": false }
+```
+
+La réponse est un tableau d'une base, dont `market_goods` porte 225 objets :
+
+```json
+{ "nickname": "dsy_corona_package", "name": "Core Battleship", "category": "ship",
+  "CraftableInfos": [ { "Disco": {
+      "FactoryName": "Modular Shipyard",
+      "Command": "/craft shipyardassemblybattleships2 2",
+      "RequiredLevel": 3, "LoopProduction": false,
+      "CookMinutes": 707.5, "TotalVolume": 8490, "Products": null } } ] }
+```
+
+Usine, commande, durée, niveau — **mais aucun ingrédient**. `Products` est
+null, et le swagger ne prévoit de liste d'ingrédients que pour FLSR.
+
+**2. Les infocards.** Le corps est un **tableau de nicknames** ; les 225
+partent en un seul appel. La réponse suit l'ordre soumis. Chaque infocard
+est un tableau de lignes, chacune découpée en `phrases` qu'il faut
+recoller. Entre « CRAFTING RECIPES: » et « CRAFTING RECIPES FINISHED »,
+chaque recette figure deux fois :
+
+```
+[RECIPE #1] (translated)
+command: /craft h-fuelproduction 1
+Factory: H-Fuel Plant
+Total recipe time: 15 minutes
+Total recipe volume: 1300
+* catalyst: Scientists (100 amount)
+] consumed: Helium-3 (500 amount, 1000 vol)
+# --- Gas Miners Guild (0.85 multiplier)
+
+[recipe] ; ([RECIPE #1] original)
+nickname = recipe_h-fuel
+craft_type = H-FuelProduction
+cooking_rate = 85
+reqlevel = 0
+loop_production = 1
+produced_item = commodity_h_fuel, 1600
+produced_item = commodity_water, 75
+consumed = commodity_helium3, 500
+catalyst = commodity_scientists, 100
+affiliation_bonus = gd_gm_grp, 0.85
+```
+
+Le bloc d'origine est le seul fiable pour les identifiants ; le bloc
+traduit est le seul à nommer l'usine. On lit donc les deux.
+
+**Pièges avérés :**
+
+- Une recette figure dans l'infocard de **chacun de ses produits** : 340
+  blocs pour 263 recettes. Dédoublonner sur `nickname`.
+- Plusieurs recettes portent le même `infotext` (variante de base et
+  variante « perk »). Seul `nickname` est une clé.
+- Trois formes d'ingrédient, pas une :
+  `consumed = marchandise, quantité` ;
+  `consumed_dynamic_alt = quantité, m1, m2, …` — une seule des marchandises,
+  à cette quantité ;
+  `consumed_dynamic = m1, q1, m2, q2, …` — une seule, chacune à son tarif.
+- `catalyst` n'est **pas consommé** : il doit seulement être en base.
+- `produced_affiliation = produit, quantité, faction, autre produit, quantité`
+  — le produit change selon l'affiliation de la base (Wildcat Gold, ou Gold
+  chez BMM).
+- `affiliation_bonus = faction, multiplicateur` réduit les matériaux pour
+  les bases de cette faction. Avec `restricted = true`, la liste devient
+  une liste d'accès : seules ces factions lancent la recette.
+- Les lignes arrivent avec un `\r` final, et certaines sont des
+  commentaires (`;craft_type = Survey`) : six recettes n'ont ainsi ni
+  `craft_type` ni usine nommée.
+- La durée d'un lot vaut `Total recipe volume / cooking_rate`, en minutes.
+
+`/api/pobs` donne par ailleurs `level` (niveau du noyau) et
+`faction_nickname` : de quoi appliquer bonus, restrictions et niveau requis.
+**Les modules construits sur une base ne sont publiés nulle part.**
+
+---
+
 ## Endpoints non explorés
 
 `/api/ammos` `/api/counter_measures` `/api/engines` `/api/factions`
-`/api/guns` `/api/hashes` `/api/info_query` `/api/infocards` `/api/mines`
+`/api/guns` `/api/hashes` `/api/info_query` `/api/mines`
 `/api/mining_operations` `/api/missiles` `/api/pobs/bases` `/api/scanners`
 `/api/shields` `/api/thrusters` `/api/tractors`
 
