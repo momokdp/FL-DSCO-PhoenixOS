@@ -324,3 +324,23 @@ Un passage est **sauté, jamais annulé**, tant qu'une fenêtre est ouverte,
 qu'un champ est rempli ou que l'onglet est en arrière-plan : un rendu neuf
 effacerait une saisie en cours, et un onglet caché n'a personne à informer.
 Le retour au premier plan, lui, rafraîchit tout de suite.
+
+## La soute se remplit au volume du vaisseau, les points au volume du jeu
+
+Le hangar plafonnait un voyage à la soute divisée par le volume unitaire de
+la marchandise, tenu pour le même sur tous les vaisseaux. Le jeu, lui, le
+réduit pour certaines classes : un vaisseau de minage prend le minerai à
+moitié volume. L'Hegemon — 5 000 de soute — charge 10 000 Iron en jeu, et
+la console lui en refusait la moitié. Les pilotes déclaraient donc une
+barge pour contourner le plafond, ce qui vidait le hangar de son sens.
+
+Deux volumes cohabitent désormais, et ne se mélangent pas :
+
+- **ce qui tient en soute** se calcule au volume de la marchandise *dans le
+  vaisseau engagé* — engagement, livraison, circuits ;
+- **les points** restent comptés au volume de référence, le même pour
+  tous. Une unité livrée vaut autant quel que soit le vaisseau.
+
+Le barème vient de darkstat, relevé une fois par jour avec le catalogue des
+vaisseaux. Rien n'est saisi à la main : une mise à jour du jeu qui change
+une dérogation vaut au relevé suivant.

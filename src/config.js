@@ -59,6 +59,9 @@ export const config = {
     // Le catalogue des vaisseaux ne change qu'aux mises à jour du jeu :
     // un relevé par jour tient les soutes à jour sans peser sur darkstat.
     shipsPath: '/api/ships',
+    // En GET, /api/commodities rend chaque marchandise avec son volume, une
+    // ligne par classe de vaisseau qui déroge au volume de référence.
+    commoditiesPath: '/api/commodities',
     shipsIntervalMs: Number(process.env.SHIPS_INTERVAL_HOURS || 24) * 60 * 60 * 1000,
 
     // /api/graph/paths accepte un tableau de couples : 400 couples reviennent

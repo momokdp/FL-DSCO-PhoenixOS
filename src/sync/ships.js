@@ -8,6 +8,11 @@
    Le catalogue ne bouge qu'aux mises à jour du jeu. Un relevé par jour
    suffit largement, et la réponse pèse près d'un mégaoctet : la
    redemander à la cadence des stocks serait du gaspillage.
+
+   Le même relevé rapporte le barème des volumes par classe de vaisseau.
+   Une soute ne se lit pas seule : un vaisseau de minage prend le minerai
+   à moitié volume, et emporte donc le double de ce que sa soute annonce.
+   Les deux données changent ensemble, aux mises à jour du jeu.
    ===================================================================== */
 
 import { config } from '../config.js';
@@ -18,12 +23,14 @@ const CLE_DERNIER_RELEVE = 'ships_synced_at';
 // En deçà, la réponse n'est pas un catalogue : une liste tronquée ou vide
 // ferait passer presque tous les modèles pour disparus du jeu.
 const MINIMUM_VRAISEMBLABLE = 50;
+// Même garde pour les marchandises : le jeu en compte plusieurs centaines.
+const MARCHANDISES_MINIMUM = 100;
 
 let minuteur = null;
 let enCours = false;
 
-async function lireCatalogue() {
-  const url = config.darkstat.baseUrl + config.darkstat.shipsPath;
+async function lire(chemin, quoi) {
+  const url = config.darkstat.baseUrl + chemin;
   const ctrl = new AbortController();
   // La réponse est bien plus lourde que celle des stocks : on lui laisse
   // le triple du délai ordinaire.
@@ -37,7 +44,7 @@ async function lireCatalogue() {
     });
     if (!res.ok) throw new Error(`darkstat a répondu HTTP ${res.status}`);
     const data = await res.json();
-    if (!Array.isArray(data)) throw new Error('Réponse inattendue : un tableau de vaisseaux était attendu.');
+    if (!Array.isArray(data)) throw new Error(`Réponse inattendue : un tableau de ${quoi} était attendu.`);
     return data;
   } catch (err) {
     if (err.name === 'AbortError') throw new Error(`darkstat n’a pas répondu en ${delai} ms`);
@@ -64,7 +71,34 @@ export function modeleDepuis(brut) {
     name,
     type: typeof brut.type === 'string' && brut.type ? brut.type.toLowerCase() : null,
     hold_size: Number.isFinite(soute) && soute > 0 ? Math.round(soute) : 0,
+    // La classe 0 existe (chasseurs légers) : seule l'absence vaut NULL.
+    game_class: classeDepuis(brut.class),
   };
+}
+
+/** Classe de vaisseau au sens du jeu : un entier positif ou nul, sinon null. */
+function classeDepuis(valeur) {
+  if (valeur == null || valeur === '') return null;
+  const n = Number(valeur);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+
+/**
+ * Ne garde d'une marchandise que son volume pour une classe de vaisseau.
+ *
+ * /api/commodities répète une marchandise autant de fois qu'elle a de
+ * volumes : une ligne sans `ship_class` pour le volume de référence, puis
+ * une par classe qui en déroge. Seules ces dernières nous intéressent, la
+ * référence étant déjà tenue dans items.volume par le relevé des stocks.
+ */
+export function volumeDepuis(brut) {
+  const commodity_nick = String(brut?.nickname ?? '').trim();
+  const game_class = classeDepuis(brut?.ship_class);
+  const volume = Number(brut?.volume);
+  if (!commodity_nick || game_class == null) return null;
+  if (!Number.isFinite(volume) || volume <= 0) return null;
+  // darkstat sert des flottants 32 bits : 0,2 arrive en 0,20000000298023224.
+  return { commodity_nick, game_class, volume: Math.round(volume * 1e6) / 1e6 };
 }
 
 /** Écrit le catalogue. Séparée du réseau pour pouvoir être éprouvée seule. */
@@ -75,10 +109,11 @@ export function ecrireCatalogue(bruts, stamp = nowSql()) {
   }
 
   const ecrire = db.prepare(`
-    INSERT INTO ship_models (nickname, name, type, hold_size, present, synced_at)
-    VALUES (@nickname, @name, @type, @hold_size, 1, @synced_at)
+    INSERT INTO ship_models (nickname, name, type, hold_size, game_class, present, synced_at)
+    VALUES (@nickname, @name, @type, @hold_size, @game_class, 1, @synced_at)
     ON CONFLICT(nickname) DO UPDATE SET
       name = excluded.name, type = excluded.type, hold_size = excluded.hold_size,
+      game_class = excluded.game_class,
       present = 1, synced_at = excluded.synced_at
   `);
   // Un modèle absent du relevé n'est pas supprimé : des vaisseaux de
@@ -96,13 +131,49 @@ export function ecrireCatalogue(bruts, stamp = nowSql()) {
   return { modeles: modeles.length, disparus };
 }
 
+/**
+ * Écrit le barème des volumes par classe. Il remplace le précédent en
+ * entier : une dérogation retirée du jeu ne doit pas survivre ici.
+ */
+export function ecrireVolumes(bruts, stamp = nowSql()) {
+  if (bruts.length < MARCHANDISES_MINIMUM) {
+    throw new Error(`Liste de marchandises trop courte pour être vraie : ${bruts.length} ligne(s).`);
+  }
+  const volumes = bruts.map(volumeDepuis).filter(Boolean);
+
+  const ecrire = db.prepare(`
+    INSERT INTO hold_volumes (commodity_nick, game_class, volume, synced_at)
+    VALUES (@commodity_nick, @game_class, @volume, @synced_at)
+    ON CONFLICT(commodity_nick, game_class) DO UPDATE SET
+      volume = excluded.volume, synced_at = excluded.synced_at
+  `);
+  const purger = db.prepare('DELETE FROM hold_volumes WHERE synced_at <> ?');
+
+  db.transaction(() => {
+    for (const v of volumes) ecrire.run({ ...v, synced_at: stamp });
+    purger.run(stamp);
+  })();
+  return { volumes: volumes.length };
+}
+
 export async function syncShips() {
   if (enCours) return { skipped: true };
   enCours = true;
   try {
-    const bilan = ecrireCatalogue(await lireCatalogue());
+    const bilan = ecrireCatalogue(await lire(config.darkstat.shipsPath, 'vaisseaux'));
     console.log(`[vaisseaux] ${bilan.modeles} modèle(s) au catalogue` +
       (bilan.disparus ? `, ${bilan.disparus} retiré(s) du jeu` : ''));
+
+    // Le barème est relevé à part : s'il échoue, le catalogue reste acquis
+    // et le barème de la veille continue de servir.
+    try {
+      const { volumes } = ecrireVolumes(
+        await lire(config.darkstat.commoditiesPath, 'marchandises'));
+      console.log(`[vaisseaux] ${volumes} volume(s) propres à une classe de vaisseau`);
+      bilan.volumes = volumes;
+    } catch (err) {
+      console.warn(`[vaisseaux] barème des volumes non relevé : ${err.message}`);
+    }
     return { ok: true, ...bilan };
   } catch (err) {
     // Un catalogue d'hier reste bon : l'échec se consigne, rien n'est effacé.
@@ -117,6 +188,10 @@ export async function syncShips() {
 function perime() {
   const dernier = getSetting(CLE_DERNIER_RELEVE);
   if (!dernier) return true;
+  // Un catalogue relevé avant qu'on n'y lise la classe des vaisseaux ne
+  // sait pas appliquer les volumes par classe : on le refait sans attendre
+  // son échéance.
+  if (!db.prepare('SELECT 1 FROM ship_models WHERE game_class IS NOT NULL LIMIT 1').get()) return true;
   const age = Date.now() - Date.parse(String(dernier).replace(' ', 'T') + 'Z');
   return !(age < config.darkstat.shipsIntervalMs);
 }

@@ -39,6 +39,15 @@ export function holdUnits(hold, volume) {
   return Math.floor(cale / vol + 1e-6);
 }
 
+/**
+ * Volume d'une unité de la marchandise d'une mission dans la soute d'un
+ * vaisseau. Le jeu le réduit pour certaines classes — le minerai sur un
+ * vaisseau de minage — et le serveur joint ces dérogations à la mission.
+ * Sans dérogation pour la classe du vaisseau, c'est le volume de référence.
+ */
+export const holdVolume = (mission, ship) =>
+  mission.hold_volumes?.[ship?.gameClass] ?? mission.item_volume;
+
 /** Libellé d'un vaisseau dans une liste de choix : son nom et sa soute. */
 export const shipLabel = (s) =>
   `${s.name} · ${num(s.hold)} ${t('common.unit')}`;

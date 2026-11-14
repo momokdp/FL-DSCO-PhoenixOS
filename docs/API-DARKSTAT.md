@@ -35,12 +35,17 @@ Source des stocks. Le rapprochement avec nos stations se fait sur `name`
   `sparta_complex` (réelle).
 - `volume` est un **flottant 32 bits** : 0,2 arrive en 0.20000000298023224.
 - `volume` et `original_volume` ne disent pas la même chose :
-  `original_volume` est le volume unitaire du bien, identique sur toutes les
-  bases ; `volume` est ce même volume une fois appliquée la compression de
-  soute propre à la base. Military Salvage vaut 1 en `original_volume` mais
-  tombe à 0,2 ou 0,4 sur certaines bases — 29 marchandises sont dans ce cas.
+  `original_volume` est le volume unitaire du bien, identique partout ;
+  `volume` est ce même volume **pour la classe de vaisseau** que la ligne
+  désigne dans `ship_class`. Ce n'est pas une affaire de base, comme on l'a
+  d'abord cru : Military Salvage vaut 1 en `original_volume`, 0,2 sur un
+  chasseur (classes 0, 1, 3, 4) et 0,4 sur un cargo léger (classe 2).
   Pour un volume de **référence** (comparer l'effort d'une marchandise à
   l'autre), c'est `original_volume` qu'il faut lire.
+- Une marchandise est donc **répétée** dans `shop_items` : une ligne à
+  `ship_class: null`, puis une par classe qui déroge, avec le même stock et
+  le même prix. Mesuré le 2026-11-14 : 584 lignes répétées sur 3 431.
+  Additionner les `quantity` sans dédoublonner gonfle la soute occupée.
 - `original_volume` vaut 0 pour les biens hors commerce : prévoir un repli.
 - `shop_items` peut être `null` alors que `shop_items_map` est peuplé.
 
@@ -85,6 +90,48 @@ des prix faux (« 1 » partout).
 
 `base_sells: false` signifie que la base n'écoule pas la marchandise : son
 prix est décoratif, l'offre doit être écartée à l'import.
+
+### En GET : le barème des volumes par classe de vaisseau
+
+Le GET ne rend pas les offres, mais il suffit pour les volumes, et ne pèse
+que 200 ko. Une marchandise y figure une fois à `ship_class: null` — son
+volume de référence — puis une fois par classe de vaisseau qui l'emporte à
+volume réduit :
+
+```json
+[ { "nickname": "commodity_iron", "name": "Iron", "volume": 1,   "ship_class": null },
+  { "nickname": "commodity_iron", "name": "Iron", "volume": 0.5, "ship_class": 14 } ]
+```
+
+Mesuré le 2026-11-14 : 665 lignes pour 504 marchandises, dont 69 ont au
+moins une dérogation. Elles se rangent en trois familles :
+
+| Classe | Vaisseaux | Marchandises à volume réduit |
+|---|---|---|
+| 14 | vaisseaux de minage (Asteroid Miner, dit Hegemon) | minerais, Iron, Water, Scrap Metal… |
+| 10 | paquebots | passagers, réfugiés, prisonniers, VIPs |
+| 0 à 4 | chasseurs et cargos légers | pilotes capturés, Military Salvage |
+
+`ship_class` se rapproche du champ `class` de `/api/ships`. La **classe 0
+existe** : tester la présence, jamais la vérité de la valeur.
+
+---
+
+## `/api/ships` — catalogue des vaisseaux  (GET)
+
+Un tableau de 498 modèles, près d'un mégaoctet. La console n'en garde que :
+
+```json
+{ "nickname": "dsy_miner", "name": "Asteroid Miner",
+  "type": "capital", "class": 14, "hold_size": 5000 }
+```
+
+- `nickname` est la seule clé sûre : plusieurs modèles portent le même `name`.
+- `type` (transport, freighter, fighter, gunboat, cruiser, capital) donne
+  l'allure de vol ; `class`, un entier, décide des volumes réduits
+  ci-dessus. Les deux ne se déduisent pas l'un de l'autre.
+- `hold_size` seul ne dit pas ce qu'un vaisseau emporte : l'Hegemon a 5 000
+  de soute et charge 10 000 Iron.
 
 ---
 
@@ -174,7 +221,7 @@ print(json.dumps(d['definitions']['appdata.GraphPathReq'], indent=2))"
 `/api/ammos` `/api/counter_measures` `/api/engines` `/api/factions`
 `/api/guns` `/api/hashes` `/api/info_query` `/api/infocards` `/api/mines`
 `/api/mining_operations` `/api/missiles` `/api/pobs/bases` `/api/scanners`
-`/api/shields` `/api/ships` `/api/thrusters` `/api/tractors`
+`/api/shields` `/api/thrusters` `/api/tractors`
 
 ---
 
